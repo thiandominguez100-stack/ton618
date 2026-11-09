@@ -563,7 +563,9 @@ function createOceanUnderlay() {
 const oceanUnderlay = createOceanUnderlay();
 
 function createSeabed() {
-  const canvasSize = 512;
+  // High-frequency sediment texture: broad silt patches, fine sand grains and
+  // shallow wind/current ripples. Integer-frequency fields keep the tile seamless.
+  const canvasSize = 1024;
   const colorCanvas = document.createElement("canvas");
   colorCanvas.width = colorCanvas.height = canvasSize;
   const colorContext = colorCanvas.getContext("2d");
@@ -572,65 +574,94 @@ function createSeabed() {
   heightCanvas.width = heightCanvas.height = canvasSize;
   const heightContext = heightCanvas.getContext("2d");
   const heightImage = heightContext.createImageData(canvasSize, canvasSize);
+  const roughCanvas = document.createElement("canvas");
+  roughCanvas.width = roughCanvas.height = canvasSize;
+  const roughContext = roughCanvas.getContext("2d");
+  const roughImage = roughContext.createImageData(canvasSize, canvasSize);
+  const TAU = Math.PI * 2;
 
   for (let y = 0; y < canvasSize; y++) {
+    const v = y / canvasSize * TAU;
     for (let x = 0; x < canvasSize; x++) {
+      const u = x / canvasSize * TAU;
       const index = (y * canvasSize + x) * 4;
-      const ridge = Math.sin(y * 0.19 + Math.sin(x * 0.028) * 2.2 +
-        Math.sin(y * 0.035 + x * 0.017) * 1.1);
-      const grain = Math.sin(x * 12.9898 + y * 78.233) *
-        Math.sin(x * 0.173 + y * 0.137);
-      const patches = Math.sin(x * 0.036 + Math.sin(y * 0.022) * 1.6) * 0.5;
-      const luminance = 116 + ridge * 10 + grain * 8 + patches * 7;
-      colorImage.data[index] = luminance * 1.02;
-      colorImage.data[index + 1] = luminance * 1.05;
-      colorImage.data[index + 2] = luminance * 0.91;
-      colorImage.data[index + 3] = 255;
-      const relief = 128 + ridge * 34 + grain * 22 + patches * 14;
-      heightImage.data[index] = relief;
-      heightImage.data[index + 1] = relief;
-      heightImage.data[index + 2] = relief;
-      heightImage.data[index + 3] = 255;
+      const broad = Math.sin(3*u + Math.sin(2*v)*0.72) * 0.48 +
+        Math.sin(4*v + 2*u + Math.sin(3*u)*0.38) * 0.28 +
+        Math.sin(7*u - 5*v) * 0.14;
+      const ripples = Math.sin(34*v + Math.sin(5*u + 2*v)*1.65 +
+        Math.sin(3*u)*0.48) * 0.62 +
+        Math.sin(49*v + Math.sin(7*u - 3*v)*1.2) * 0.23;
+      const grains = Math.sin(173*u + 97*v) * 0.44 +
+        Math.sin(251*u - 193*v) * 0.28 +
+        Math.sin(389*u + 313*v) * 0.16;
+      const pits = Math.pow(Math.max(0, Math.sin(83*u + 61*v + Math.sin(9*u)*0.7)), 12);
+      const sediment = broad*11 + ripples*5.8 + grains*2.9 - pits*5.2;
+      const warm = 0.5 + 0.5*Math.sin(5*u + 4*v + broad*1.8);
+      colorImage.data[index] = THREE.MathUtils.clamp(159 + sediment + warm*3.4, 0, 255);
+      colorImage.data[index+1] = THREE.MathUtils.clamp(149 + sediment*0.94 + warm*2.2, 0, 255);
+      colorImage.data[index+2] = THREE.MathUtils.clamp(128 + sediment*0.82 - warm*1.4, 0, 255);
+      colorImage.data[index+3] = 255;
+      const relief = 128 + broad*15 + ripples*18 + grains*6 - pits*13;
+      heightImage.data[index] = heightImage.data[index+1] = heightImage.data[index+2] =
+        THREE.MathUtils.clamp(relief, 0, 255);
+      heightImage.data[index+3] = 255;
+      const rough = 218 + broad*5 - ripples*8 + pits*9 + grains*3;
+      roughImage.data[index] = roughImage.data[index+1] = roughImage.data[index+2] =
+        THREE.MathUtils.clamp(rough, 0, 255);
+      roughImage.data[index+3] = 255;
     }
   }
   colorContext.putImageData(colorImage, 0, 0);
   heightContext.putImageData(heightImage, 0, 0);
+  roughContext.putImageData(roughImage, 0, 0);
 
-  // Sparse stones and shell fragments break up the fine sand ripples.
+  // Tiny mineral grains, dark basalt flecks and occasional pale shell fragments.
   let seed = 9137;
   const random = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
     return seed / 4294967296;
   };
-  for (let i = 0; i < 190; i++) {
+  for (let i = 0; i < 1250; i++) {
     const x = random() * canvasSize;
     const y = random() * canvasSize;
-    const radius = 1.0 + random() * 4.2;
+    const radius = 0.35 + random() * (i < 90 ? 2.15 : 0.9);
+    const isShell = random() > 0.91;
     colorContext.beginPath();
-    colorContext.fillStyle = random() > 0.48 ? "rgba(42,58,55,0.25)" : "rgba(221,213,184,0.22)";
-    colorContext.ellipse(x, y, radius * (0.7 + random() * 0.8), radius, random() * Math.PI, 0, Math.PI * 2);
+    colorContext.fillStyle = isShell
+      ? "rgba(226,218,190,0.40)"
+      : (random() > 0.53 ? "rgba(66,73,68,0.24)" : "rgba(112,103,85,0.18)");
+    colorContext.ellipse(x, y, radius*(0.65+random()*0.8), radius, random()*Math.PI, 0, Math.PI*2);
     colorContext.fill();
+    if (radius > 1.05) {
+      heightContext.beginPath();
+      heightContext.fillStyle = "rgba(170,170,170,0.30)";
+      heightContext.ellipse(x, y, radius, radius*0.72, 0, 0, Math.PI*2);
+      heightContext.fill();
+    }
   }
 
-  const colorTexture = new THREE.CanvasTexture(colorCanvas);
-  colorTexture.colorSpace = THREE.SRGBColorSpace;
-  colorTexture.wrapS = colorTexture.wrapT = THREE.RepeatWrapping;
-  colorTexture.repeat.set(52, 52);
-  colorTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
-
-  const heightTexture = new THREE.CanvasTexture(heightCanvas);
-  heightTexture.wrapS = heightTexture.wrapT = THREE.RepeatWrapping;
-  heightTexture.repeat.copy(colorTexture.repeat);
-  heightTexture.anisotropy = colorTexture.anisotropy;
+  const makeTexture = (canvas, colorSpace=false) => {
+    const texture = new THREE.CanvasTexture(canvas);
+    if (colorSpace) texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(52, 52);
+    texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 12);
+    texture.needsUpdate = true;
+    return texture;
+  };
+  const colorTexture = makeTexture(colorCanvas, true);
+  const heightTexture = makeTexture(heightCanvas);
+  const roughnessTexture = makeTexture(roughCanvas);
 
   const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, 1, 1);
   geometry.rotateX(-Math.PI / 2);
   const material = new THREE.MeshStandardMaterial({
-    color: 0xa0a69a,
+    color: 0xffffff,
     map: colorTexture,
     bumpMap: heightTexture,
-    bumpScale: 0.075,
-    roughness: 0.96,
+    bumpScale: 0.092,
+    roughnessMap: roughnessTexture,
+    roughness: 0.98,
     metalness: 0.0,
     side: THREE.DoubleSide
   });
@@ -639,7 +670,7 @@ function createSeabed() {
   floor.receiveShadow = true;
   floor.frustumCulled = false;
   scene.add(floor);
-  return { mesh: floor, colorTexture, heightTexture };
+  return { mesh: floor, colorTexture, heightTexture, roughnessTexture };
 }
 const seabed = createSeabed();
 
@@ -739,11 +770,90 @@ const gargantua = createGargantua();
 function mat(color, roughness = 0.5, metalness = 0.1) {
   return new THREE.MeshStandardMaterial({ color, roughness, metalness });
 }
+function createExplorerSurfaceTextures(kind="fabric", size=512) {
+  const colorCanvas=document.createElement("canvas");
+  colorCanvas.width=colorCanvas.height=size;
+  const colorContext=colorCanvas.getContext("2d");
+  const colorImage=colorContext.createImageData(size,size);
+  const heightCanvas=document.createElement("canvas");
+  heightCanvas.width=heightCanvas.height=size;
+  const heightContext=heightCanvas.getContext("2d");
+  const heightImage=heightContext.createImageData(size,size);
+  const roughCanvas=document.createElement("canvas");
+  roughCanvas.width=roughCanvas.height=size;
+  const roughContext=roughCanvas.getContext("2d");
+  const roughImage=roughContext.createImageData(size,size);
+  const TAU=Math.PI*2;
+  for(let y=0;y<size;y++){
+    const v=y/size*TAU;
+    for(let x=0;x<size;x++){
+      const u=x/size*TAU;
+      const i=(y*size+x)*4;
+      const macro=Math.sin(5*u+Math.sin(3*v)*0.7)*0.5+
+        Math.sin(4*v-2*u)*0.32+Math.sin(9*u+7*v)*0.18;
+      const grain=Math.sin(181*u+137*v)*0.42+
+        Math.sin(293*u-211*v)*0.28+Math.sin(367*u+331*v)*0.18;
+      let fiber=0, relief=0, rough=0, tone=0;
+      if(kind==="fabric"){
+        const warp=Math.sin(v*TAU*36+Math.sin(u*TAU*5)*0.12);
+        const weft=Math.sin(u*TAU*36+Math.sin(v*TAU*4)*0.12);
+        fiber=warp*0.48+weft*0.52;
+        relief=128+fiber*15+macro*4.2+grain*2.2;
+        rough=226+Math.abs(fiber)*12+macro*4+grain*3;
+        tone=macro*2.1+fiber*1.35+grain*0.85;
+      }else if(kind==="polymer"){
+        const micro=Math.sin(217*u+83*v)*0.45+Math.sin(319*u-277*v)*0.35+grain*0.2;
+        relief=128+macro*3.8+micro*3.2;
+        rough=178+macro*10+Math.abs(micro)*12;
+        tone=macro*1.9+micro*1.15;
+      }else{
+        const stipple=Math.sin(149*u+193*v)*0.5+Math.sin(271*u-227*v)*0.5;
+        relief=128+macro*5+stipple*7;
+        rough=218+Math.abs(stipple)*15+macro*5;
+        tone=macro*1.6+stipple*1.1;
+      }
+      colorImage.data[i]=THREE.MathUtils.clamp(247+tone,0,255);
+      colorImage.data[i+1]=THREE.MathUtils.clamp(247+tone*0.98,0,255);
+      colorImage.data[i+2]=THREE.MathUtils.clamp(244+tone*0.94,0,255);
+      colorImage.data[i+3]=255;
+      heightImage.data[i]=heightImage.data[i+1]=heightImage.data[i+2]=THREE.MathUtils.clamp(relief,0,255);
+      heightImage.data[i+3]=255;
+      roughImage.data[i]=roughImage.data[i+1]=roughImage.data[i+2]=THREE.MathUtils.clamp(rough,0,255);
+      roughImage.data[i+3]=255;
+    }
+  }
+  colorContext.putImageData(colorImage,0,0);
+  heightContext.putImageData(heightImage,0,0);
+  roughContext.putImageData(roughImage,0,0);
+  const build=(canvas,isColor=false)=>{
+    const texture=new THREE.CanvasTexture(canvas);
+    if(isColor)texture.colorSpace=THREE.SRGBColorSpace;
+    texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+    texture.repeat.set(kind==="fabric"?2.4:1.8,kind==="fabric"?2.4:1.8);
+    texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),12);
+    texture.needsUpdate=true;
+    return texture;
+  };
+  return {map:build(colorCanvas,true),bumpMap:build(heightCanvas),roughnessMap:build(roughCanvas)};
+}
 function makeExplorer() {
   const root = new THREE.Group();
-  const suit = mat(0xd9e4df, 0.42, 0.22);
-  const dark = mat(0x1a2d37, 0.7, 0.1);
-  const orange = mat(0xd18b4d, 0.48, 0.12);
+  const fabricMaps=createExplorerSurfaceTextures("fabric");
+  const polymerMaps=createExplorerSurfaceTextures("polymer");
+  const rubberMaps=createExplorerSurfaceTextures("rubber");
+  const suit = mat(0xd9e4df, 0.86, 0.025);
+  suit.map=fabricMaps.map;suit.bumpMap=fabricMaps.bumpMap;suit.bumpScale=0.024;
+  suit.roughnessMap=fabricMaps.roughnessMap;suit.needsUpdate=true;
+  const dark = mat(0x1a2d37, 0.76, 0.045);
+  dark.map=rubberMaps.map;dark.bumpMap=rubberMaps.bumpMap;dark.bumpScale=0.018;
+  dark.roughnessMap=rubberMaps.roughnessMap;dark.needsUpdate=true;
+  const orange = mat(0xd18b4d, 0.48, 0.08);
+  orange.map=polymerMaps.map;orange.bumpMap=polymerMaps.bumpMap;orange.bumpScale=0.012;
+  orange.roughnessMap=polymerMaps.roughnessMap;orange.needsUpdate=true;
+  const helmetShell = new THREE.MeshPhysicalMaterial({
+    color:0xe3ebe7,metalness:0.08,roughness:0.27,clearcoat:0.48,clearcoatRoughness:0.19,
+    map:polymerMaps.map,roughnessMap:polymerMaps.roughnessMap,bumpMap:polymerMaps.bumpMap,bumpScale:0.006
+  });
   const glass = new THREE.MeshPhysicalMaterial({ color: 0x7ca7b7, metalness: 0.68, roughness: 0.12, transparent: true, opacity: 0.78, clearcoat: 1, clearcoatRoughness: 0.05 });
   const visor = new THREE.MeshStandardMaterial({ color: 0x06121d, metalness: 0.92, roughness: 0.08 });
   const glow = new THREE.MeshBasicMaterial({ color: 0x9deeff });
@@ -780,7 +890,7 @@ function makeExplorer() {
     headPivot.add(mesh);
     return mesh;
   };
-  const helmet = addHeadPart(new THREE.SphereGeometry(0.42,28,22),suit,[0,2.72,0]);
+  const helmet = addHeadPart(new THREE.SphereGeometry(0.42,40,32),helmetShell,[0,2.72,0]);
   const visorMesh = addHeadPart(new THREE.SphereGeometry(0.335,28,20),glass,[0,2.73,-0.16]);
   visorMesh.scale.set(0.9,0.82,0.42);
   const visorLine = addHeadPart(new THREE.TorusGeometry(0.365,0.025,8,36),orange,[0,2.73,-0.05]);
