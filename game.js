@@ -1019,7 +1019,7 @@ function makeExplorer() {
   for(const part of hipPouchParts)pelvisPivot.attach(part);
   for(const hip of legPivots)pelvisPivot.attach(hip);
 
-  const thoraxParts=new Set([upper,headPivot,...armPivots]);
+  const thoraxParts=new Set([upper,headPivot,...armPivots,neckSeal,neckRing,helmetLowerRing,chestSeal,chestCollar]);
   const pelvisParts=new Set([pelvis,belt,...hipPouchParts,...legPivots]);
   for(const child of [...root.children]){
     if(child===pelvisPivot||pelvisParts.has(child)||thoraxParts.has(child))continue;
@@ -1028,6 +1028,7 @@ function makeExplorer() {
   thoraxPivot.attach(upper);
   thoraxPivot.attach(headPivot);
   for(const shoulder of armPivots)thoraxPivot.attach(shoulder);
+  for(const part of [neckSeal,neckRing,helmetLowerRing,chestSeal,chestCollar])thoraxPivot.attach(part);
   const headBaseY=headPivot.position.y;
 
   // Spring-damped joints add controlled inertia and respect anatomical ranges.
@@ -1083,7 +1084,7 @@ function makeExplorer() {
     elbows:elbowPivots.map(p=>createJoint(p,[[-0.12,1.62],[-0.12,0.12],[-0.18,0.18]],48)),
     wrists:wristPivots.map(p=>createJoint(p,[[-0.70,0.70],[-0.62,0.62],[-0.56,0.56]],52)),
     fingers:handFingerPivots.map(hand=>hand.map(digit=>({
-      base:createJoint(digit.base,[[-0.42,0.82],[-0.22,0.22],[-0.26,0.26]],56),
+      base:createJoint(digit.base,[[-0.42,0.82],[-0.22,0.22],[-0.76,0.76]],56),
       distal:createJoint(digit.distal,[[-0.22,0.95],[-0.16,0.16],[-0.18,0.18]],58)
     })))
   };
@@ -1589,7 +1590,7 @@ function updatePlayer(dt) {
       );
       explorer.joints.fingers[side].forEach((digit,index)=>{
         const curl=0.10+0.025*Math.sin(walkPhase*2+side+index*0.35);
-        digit.base.set(curl,0,0);
+        digit.base.set(curl,0,digit.base.target.z);
         digit.distal.set(curl*0.72,0,0);
       });
     }
@@ -1617,7 +1618,7 @@ function updatePlayer(dt) {
       explorer.joints.elbows[side].set(0.15,0,0);
       explorer.joints.wrists[side].set(0,0,0);
       explorer.joints.fingers[side].forEach(digit=>{
-        digit.base.set(0.08,0,0);
+        digit.base.set(0.08,0,digit.base.target.z);
         digit.distal.set(0.055,0,0);
       });
     }
@@ -1682,7 +1683,7 @@ function updateExplorerLife(dt,speed){
         0.08+Math.sin(t*0.72+side+index*0.42)*0.018,
         idleAmount
       );
-      digit.base.set(curl,0,0);
+      digit.base.set(curl,0,digit.base.target.z);
       digit.distal.set(curl*0.68,0,0);
     });
   }
