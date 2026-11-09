@@ -296,6 +296,7 @@ function createOcean() {
     "uniform float uWaterLevel;",
     "uniform float uWaterDepth;",
     "uniform float uUnderwaterView;",
+    "uniform vec4 uWakeData[8];",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
     "varying vec3 vWaveNormal;",
@@ -330,7 +331,23 @@ function createOcean() {
     "float ph4=dot(p,vec2(-0.72,-0.69))*3.10+uTime*7.60;",
     "vec2 microSlope=vec2(-0.060*0.90*0.83*sin(ph1)-0.032*1.42*(-0.44)*sin(ph2)-0.014*2.15*0.96*sin(ph3)-0.007*3.10*(-0.72)*sin(ph4),",
     "0.060*0.90*0.55*cos(ph1)+0.032*1.42*0.90*cos(ph2)+0.014*2.15*(-0.27)*cos(ph3)+0.007*3.10*(-0.69)*cos(ph4));",
-    "N=normalize(N+vec3(-microSlope.x,0.0,-microSlope.y));",
+    "vec2 wakeSlope=vec2(0.0);",
+    "float wakeFoam=0.0;",
+    "for(int i=0;i<8;i++){",
+    "vec4 wake=uWakeData[i];",
+    "if(wake.w>0.001){",
+    "vec2 offset=p-wake.xy;",
+    "float radius=length(offset);",
+    "float ringRadius=0.35+wake.z*3.15;",
+    "float delta=radius-ringRadius;",
+    "float envelope=exp(-delta*delta/0.32)*exp(-wake.z*1.10)*wake.w;",
+    "float phase=delta*3.4;",
+    "float derivative=0.035*envelope*(3.4*cos(phase)-(2.0*delta/0.32)*sin(phase));",
+    "wakeSlope+=derivative*offset/max(radius,0.02);",
+    "wakeFoam=max(wakeFoam,envelope);",
+    "}",
+    "}",
+    "N=normalize(N+vec3(-microSlope.x-wakeSlope.x,0.0,-microSlope.y-wakeSlope.y));",
     "vec3 V=normalize(cameraPosition-vWorldPos);vec3 L=normalize(uSunDir);vec3 H=normalize(V+L);",
     "float nDotV=max(dot(N,V),0.001);float nDotL=max(dot(N,L),0.0);",
     "float nDotH=max(dot(N,H),0.0);float vDotH=max(dot(V,H),0.0);",
@@ -382,6 +399,9 @@ function createOcean() {
     "float bubbles=smoothstep(0.68,0.91,noise(p*0.25+vec2(-uTime*0.18,uTime*0.12)))*whitecap;",
     "vec3 foamColor=vec3(0.72,0.86,0.86)+vec3(0.10,0.10,0.08)*nDotL;",
     "water=mix(water,foamColor,clamp(whitecap+bubbles*0.24,0.0,0.92));",
+    "float wakeFoamNoise=noise(p*0.24+vec2(-uTime*0.18,uTime*0.13));",
+    "float brokenWakeFoam=wakeFoam*smoothstep(0.34,0.68,wakeFoamNoise);",
+    "water=mix(water,vec3(0.82,0.94,0.94),clamp(brokenWakeFoam*0.78,0.0,0.72));",
     "float underwaterView=uUnderwaterView;",
     "water=mix(water,vec3(0.018,0.115,0.145),underwaterView*0.44);",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
@@ -404,6 +424,7 @@ function createOcean() {
       uWaterLevel: { value: WATER_LEVEL },
       uWaterDepth: { value: WATER_DEPTH_MEAN },
       uUnderwaterView: { value: 0 },
+      uWakeData: { value: Array.from({length:8},()=>new THREE.Vector4(0,0,0,0)) },
       uSunDir: { value: SUN_DIR.clone() },
       uWaveData: { value: waveUniforms },
       uWaveMotion: { value: motionUniforms }
@@ -705,9 +726,10 @@ function createParticleSystem(count) {
   positions.fill(-10000);
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position",new THREE.BufferAttribute(positions,3).setUsage(THREE.DynamicDrawUsage));
-  const material = new THREE.PointsMaterial({ color:0xc8faff, size:0.14, sizeAttenuation:true, transparent:true, opacity:0.88, blending:THREE.AdditiveBlending, depthWrite:false });
+  const material = new THREE.PointsMaterial({ color:0xe5fbff, size:0.19, sizeAttenuation:true, transparent:true, opacity:0.96, blending:THREE.AdditiveBlending, depthWrite:false, depthTest:true });
   const points = new THREE.Points(geometry,material);
   points.frustumCulled=false;
+  points.renderOrder=3;
   scene.add(points);
   return { count, positions, velocities, life, geometry, points, cursor:0 };
 }
@@ -717,12 +739,12 @@ function spawnSpray(x,z,amount=9) {
   for(let j=0;j<amount;j++){
     const i=spray.cursor++%spray.count;
     spray.positions[3*i]=x+(Math.random()-.5)*0.7;
-    spray.positions[3*i+1]=y+Math.random()*0.15;
+    spray.positions[3*i+1]=y+0.015+Math.random()*0.035;
     spray.positions[3*i+2]=z+(Math.random()-.5)*0.7;
-    spray.velocities[3*i]=(Math.random()-.5)*2.4+velocity.x*0.18;
-    spray.velocities[3*i+1]=1.2+Math.random()*2.4;
-    spray.velocities[3*i+2]=(Math.random()-.5)*2.4+velocity.z*0.18;
-    spray.life[i]=0.55+Math.random()*0.55;
+    spray.velocities[3*i]=(Math.random()-.5)*1.85+velocity.x*0.28;
+    spray.velocities[3*i+1]=0.48+Math.random()*1.35;
+    spray.velocities[3*i+2]=(Math.random()-.5)*1.85+velocity.z*0.28;
+    spray.life[i]=0.48+Math.random()*0.48;
   }
 }
 function updateSpray(dt) {
@@ -739,28 +761,68 @@ function updateSpray(dt) {
 }
 
 const ripplePool=[];
-for(let i=0;i<10;i++){
-  const material=new THREE.MeshBasicMaterial({color:0x9edee2,transparent:true,opacity:0.0,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
-  const mesh=new THREE.Mesh(new THREE.TorusGeometry(0.45,0.018,8,48),material);
+for(let i=0;i<32;i++){
+  const material=new THREE.MeshBasicMaterial({
+    color:0xb9edf0,
+    transparent:true,
+    opacity:0.0,
+    side:THREE.DoubleSide,
+    depthTest:true,
+    depthWrite:false,
+    blending:THREE.AdditiveBlending
+  });
+  const mesh=new THREE.Mesh(new THREE.TorusGeometry(0.45,0.014,6,64),material);
   mesh.rotation.x=-Math.PI/2;
   mesh.visible=false;
+  mesh.renderOrder=2;
   scene.add(mesh);
-  ripplePool.push({mesh,material,life:0});
+  ripplePool.push({mesh,material,life:0,age:0,x:0,z:0,baseScale:0.18,expandSpeed:2.2,baseOpacity:0.4});
 }
 let rippleCursor=0;
-function spawnRipple() {
-  const x=player.position.x+(Math.random()-.5)*0.95;
-  const z=player.position.z+(Math.random()-.5)*1.1;
-  const r=ripplePool[rippleCursor++%ripplePool.length];
-  r.life=1.0;r.mesh.visible=true;r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.025,z);r.mesh.scale.setScalar(0.18);r.material.opacity=0.30;r.mesh.rotation.z=Math.random()*Math.PI;
+let wakeCursor=0;
+
+function triggerLocalWake(x,z,strength=0.8){
+  const wakeData=ocean.material.uniforms.uWakeData.value;
+  const slot=wakeData[wakeCursor++%wakeData.length];
+  slot.set(x,z,0,THREE.MathUtils.clamp(strength,0.25,1.4));
 }
-function updateRipples(dt) {
+
+function spawnRipple(x=player.position.x,z=player.position.z,strength=0.8){
+  triggerLocalWake(x,z,strength);
+  for(let band=0;band<2;band++){
+    const r=ripplePool[rippleCursor++%ripplePool.length];
+    r.life=1.05;
+    r.age=0;
+    r.x=x;
+    r.z=z;
+    r.baseScale=band===0?0.19:0.31;
+    r.expandSpeed=band===0?2.55:1.95;
+    r.baseOpacity=(band===0?0.48:0.27)*strength;
+    r.mesh.visible=true;
+    r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.055+band*0.008,z);
+    r.mesh.scale.setScalar(r.baseScale);
+    r.mesh.rotation.z=Math.random()*Math.PI;
+    r.material.opacity=r.baseOpacity;
+  }
+}
+
+function updateWakeEvents(dt){
+  for(const wake of ocean.material.uniforms.uWakeData.value){
+    if(wake.w<=0)continue;
+    wake.z+=dt;
+    if(wake.z>1.9)wake.w=0;
+  }
+}
+
+function updateRipples(dt){
   for(const r of ripplePool){
     if(r.life<=0)continue;
-    r.life-=dt*0.85;
-    const age=1-r.life;
-    r.mesh.scale.setScalar(0.18+age*3.0);
-    r.material.opacity=Math.max(0,r.life)*0.30;
+    r.age+=dt;
+    r.life-=dt;
+    const fade=THREE.MathUtils.clamp(r.life/1.05,0,1);
+    r.mesh.position.y=waveHeight(r.x,r.z,simulationTime)+0.055;
+    r.mesh.scale.setScalar(r.baseScale+r.age*r.expandSpeed);
+    r.material.opacity=r.baseOpacity*Math.pow(fade,1.35);
     if(r.life<=0)r.mesh.visible=false;
   }
 }
@@ -801,8 +863,9 @@ function updatePlayer(dt) {
     velocity.x += forward.x * 0.9;
     velocity.z += forward.z * 0.9;
     spaceStrokeRequested = false;
-    spawnSpray(player.position.x, player.position.z, 18);
-    spawnRipple();
+    const splashStrength=THREE.MathUtils.clamp(0.85+horizontalSpeed*0.18,0.85,1.35);
+    spawnSpray(player.position.x,player.position.z,22);
+    spawnRipple(player.position.x,player.position.z,splashStrength);
   }
 
   if (horizontalSpeed > 0.12) {
@@ -817,13 +880,16 @@ function updatePlayer(dt) {
     explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.22;
     splashTimer += dt;
     rippleTimer += dt;
-    if (splashTimer > (horizontalSpeed > 2.3 ? 0.23 : 0.34)) {
-      spawnSpray(player.position.x, player.position.z, horizontalSpeed > 2.3 ? 8 : 5);
-      splashTimer = 0;
-    }
-    if (rippleTimer > 0.46) {
-      spawnRipple();
-      rippleTimer = 0;
+    if (splashTimer > (horizontalSpeed > 2.3 ? 0.25 : 0.34)) {
+      const footSide=Math.sin(walkPhase)>=0?1:-1;
+      const localFoot=new THREE.Vector3(footSide*0.22,0,-0.12)
+        .applyAxisAngle(new THREE.Vector3(0,1,0),explorer.root.rotation.y);
+      const stepX=player.position.x+localFoot.x;
+      const stepZ=player.position.z+localFoot.z;
+      const stepStrength=THREE.MathUtils.clamp(0.60+horizontalSpeed*0.28,0.65,1.28);
+      spawnRipple(stepX,stepZ,stepStrength);
+      spawnSpray(stepX,stepZ,horizontalSpeed>2.3?13:8);
+      splashTimer=0;
     }
   } else {
     explorer.legPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 3.8));
@@ -913,6 +979,7 @@ function updateScene(dt, speed) {
   }
 
   updateSpray(dt);
+  updateWakeEvents(dt);
   updateRipples(dt);
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const underwater = firstPerson && camera.position.y < surfaceY;
