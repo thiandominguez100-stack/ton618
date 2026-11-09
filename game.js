@@ -80,20 +80,61 @@ function tideCycleAt(time) {
   return { distance, approaching, phase };
 }
 
+const OCEAN_GRAVITY = 9.81;
+const OCEAN_DEPTH = 350;
+const OCEAN_WIND_SPEED = 28; // m/s: deliberately stormy Miller sea state
+const OCEAN_WAVES_COUNT = 10;
+const OCEAN_WAVE_BINS = [
+  { wavelength: 1100, angle: -8, phase: 0.4 },
+  { wavelength: 760, angle: 5, phase: 2.2 },
+  { wavelength: 520, angle: -14, phase: 4.1 },
+  { wavelength: 360, angle: 12, phase: 1.5 },
+  { wavelength: 250, angle: -21, phase: 3.2 },
+  { wavelength: 170, angle: 22, phase: 5.1 },
+  { wavelength: 115, angle: -28, phase: 0.9 },
+  { wavelength: 75, angle: 29, phase: 2.8 },
+  { wavelength: 48, angle: -35, phase: 4.7 },
+  { wavelength: 30, angle: 34, phase: 1.9 }
+];
+
+function jonswapAmplitude(wavelength) {
+  const k = 2 * Math.PI / wavelength;
+  const omega = Math.sqrt(OCEAN_GRAVITY * k * Math.tanh(k * OCEAN_DEPTH));
+  const peakOmega = 0.877 * OCEAN_GRAVITY / OCEAN_WIND_SPEED;
+  const sigma = omega <= peakOmega ? 0.07 : 0.09;
+  const peakShape = Math.exp(-Math.pow(omega - peakOmega, 2) /
+    (2 * sigma * sigma * peakOmega * peakOmega));
+  const spectrum = 0.0081 * OCEAN_GRAVITY * OCEAN_GRAVITY / Math.pow(omega, 5) *
+    Math.exp(-1.25 * Math.pow(peakOmega / omega, 4)) * Math.pow(3.3, peakShape);
+  return Math.sqrt(2 * spectrum * (0.15 * omega));
+}
+
+const OCEAN_WAVES = OCEAN_WAVE_BINS.map(bin => {
+  const angle = THREE.MathUtils.degToRad(bin.angle);
+  const dirX = Math.sin(angle);
+  const dirZ = -Math.cos(angle);
+  const k = 2 * Math.PI / bin.wavelength;
+  const omega = Math.sqrt(OCEAN_GRAVITY * k * Math.tanh(k * OCEAN_DEPTH));
+  const amplitude = jonswapAmplitude(bin.wavelength);
+  // Sum(Q_i * k_i * A_i) remains below one so Gerstner crests do not loop.
+  const horizontalAmplitude = 0.68 / (OCEAN_WAVES_COUNT * k);
+  return { dirX, dirZ, k, omega, amplitude, phase: bin.phase, horizontalAmplitude };
+});
+
 function waveHeight(x, z, time) {
-  // Six travelling wave bands: long ocean swell plus shorter, faster surface chop.
-  const base =
-    0.72 * Math.sin(x * 0.010 + z * 0.004 - time * 0.72) +
-    0.44 * Math.sin(-x * 0.006 + z * 0.014 + time * 0.82 + 1.4) +
-    0.24 * Math.sin(x * 0.026 - z * 0.019 - time * 1.48) +
-    0.11 * Math.sin(-x * 0.052 - z * 0.038 + time * 2.35) +
-    0.055 * Math.sin(x * 0.12 + z * 0.075 - time * 3.0) +
-    0.022 * Math.sin(-x * 0.23 + z * 0.16 + time * 4.4);
-  const front = z - tideFrontZ;
-  const lateral = Math.exp(-Math.pow((x - tideCenterX) / 520, 4));
-  const crest = Math.exp(-Math.pow(front / 130, 2));
-  const shoulder = Math.exp(-Math.pow((front + 210) / 250, 2));
-  return base + tideAmplitude * lateral * (5.4 * crest + 1.25 * shoulder * Math.sin(front * 0.018 - time * 0.8));
+  let height = 0;
+  for (const wave of OCEAN_WAVES) {
+    const phase = wave.k * (x * wave.dirX + z * wave.dirZ) - wave.omega * time + wave.phase;
+    height += wave.amplitude * Math.sin(phase);
+  }
+  const lateralX = (x - tideCenterX) / 780;
+  const lateral = Math.exp(-Math.pow(lateralX, 8));
+  const bend = Math.sin(x * 0.0035 + time * 0.13) * 0.13 +
+    Math.sin(x * 0.010 - time * 0.21) * 0.055;
+  const tidePhase = (z - tideFrontZ + bend * 110) * 0.0085 + Math.PI * 0.5;
+  height += tideAmplitude * lateral *
+    (26 * Math.sin(tidePhase) + 4.2 * Math.sin(2 * tidePhase - 0.42));
+  return height;
 }
 
 function createSkyDome() {
@@ -146,6 +187,7 @@ function createSkyDome() {
 const skyDome = createSkyDome();
 
 function createOcean() {
+  // Long gravity waves are geometry; short ripples are evaluated in the pixel shader.
   const segments = MOBILE ? 300 : 440;
   const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, segments, segments);
   geometry.rotateX(-Math.PI / 2);
@@ -155,46 +197,53 @@ function createOcean() {
     "uniform vec2 uOrigin;",
     "uniform float uTideZ;",
     "uniform float uTideX;",
+    "uniform vec4 uWaveData[10];",
+    "uniform vec4 uWaveMotion[10];",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
+    "varying vec3 vWaveNormal;",
+    "varying float vCompression;",
     "varying float vHeight;",
-    "float waveHeight(vec2 p,float t){",
-    "float h=0.72*sin(p.x*0.010+p.y*0.004-t*0.72);",
-    "h+=0.44*sin(-p.x*0.006+p.y*0.014+t*0.82+1.4);",
-    "h+=0.24*sin(p.x*0.026-p.y*0.019-t*1.48);",
-    "h+=0.11*sin(-p.x*0.052-p.y*0.038+t*2.35);",
-    "h+=0.055*sin(p.x*0.12+p.y*0.075-t*3.0);",
-    "h+=0.022*sin(-p.x*0.23+p.y*0.16+t*4.4);",
-    "float front=p.y-uTideZ;",
-    "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
-    "float crest=exp(-pow(front/130.0,2.0));",
-    "float shoulder=exp(-pow((front+210.0)/250.0,2.0));",
-    "h+=lateral*(5.4*crest+1.25*shoulder*sin(front*0.018-t*0.8));",
-    "return h;",
+    "void evaluateOcean(vec2 p,float t,out vec2 displacement,out vec3 tangentX,out vec3 tangentZ,out float height,out float compression){",
+    "displacement=vec2(0.0);",
+    "float dXdx=1.0,dXdz=0.0,dZdx=0.0,dZdz=1.0,dYdx=0.0,dYdz=0.0;",
+    "height=0.0;",
+    "for(int i=0;i<10;i++){",
+    "vec4 w=uWaveData[i];vec4 m=uWaveMotion[i];",
+    "vec2 d=w.xy;float k=w.z,A=w.w,omega=m.x,phaseOffset=m.y,qA=m.z;",
+    "float phase=k*dot(p,d)-omega*t+phaseOffset;",
+    "float sn=sin(phase),cs=cos(phase);",
+    "height+=A*sn;displacement+=d*qA*cs;",
+    "dXdx-=qA*k*d.x*d.x*sn;dXdz-=qA*k*d.x*d.y*sn;",
+    "dZdx-=qA*k*d.y*d.x*sn;dZdz-=qA*k*d.y*d.y*sn;",
+    "dYdx+=A*k*d.x*cs;dYdz+=A*k*d.y*cs;",
+    "}",
+    "float lateralX=(p.x-uTideX)/780.0;",
+    "float lateral=exp(-pow(lateralX,8.0));",
+    "float bend=sin(p.x*0.0035+t*0.13)*0.13+sin(p.x*0.010-t*0.21)*0.055;",
+    "float bendDx=cos(p.x*0.0035+t*0.13)*0.13*0.0035+cos(p.x*0.010-t*0.21)*0.055*0.010;",
+    "float tideK=0.0085;",
+    "float tidePhase=(p.y-uTideZ+bend*110.0)*tideK+1.5707963;",
+    "float tideShape=26.0*sin(tidePhase)+4.2*sin(2.0*tidePhase-0.42);",
+    "float tideSlope=26.0*cos(tidePhase)+8.4*cos(2.0*tidePhase-0.42);",
+    "height+=lateral*tideShape;",
+    "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
+    "dYdx+=lateralDx*tideShape+lateral*tideSlope*bendDx*110.0*tideK;",
+    "dYdz+=lateral*tideSlope*tideK;",
+    "tangentX=vec3(dXdx,dYdx,dZdx);",
+    "tangentZ=vec3(dXdz,dYdz,dZdz);",
+    "float jacobian=dXdx*dZdz-dXdz*dZdx;",
+    "compression=clamp(1.0-jacobian,0.0,1.0);",
     "}",
     "void main(){",
-    "vec3 p=position;",
-    "vec2 worldXZ=vec2(p.x+uOrigin.x,p.z+uOrigin.y);",
-    "float phase1=worldXZ.x*0.010+worldXZ.y*0.004-uTime*0.72;",
-    "float phase2=-worldXZ.x*0.006+worldXZ.y*0.014+uTime*0.82+1.4;",
-    "float phase3=worldXZ.x*0.026-worldXZ.y*0.019-uTime*1.48;",
-    "float phase4=-worldXZ.x*0.052-worldXZ.y*0.038+uTime*2.35;",
-    "float phase5=worldXZ.x*0.12+worldXZ.y*0.075-uTime*3.0;",
-    "float phase6=-worldXZ.x*0.23+worldXZ.y*0.16+uTime*4.4;",
-    "vec2 d1=normalize(vec2(0.010,0.004));",
-    "vec2 d2=normalize(vec2(-0.006,0.014));",
-    "vec2 d3=normalize(vec2(0.026,-0.019));",
-    "vec2 d4=normalize(vec2(-0.052,-0.038));",
-    "vec2 d5=normalize(vec2(0.12,0.075));",
-    "vec2 d6=normalize(vec2(-0.23,0.16));",
-    "p.x+=0.50*d1.x*cos(phase1)+0.29*d2.x*cos(phase2)+0.11*d3.x*cos(phase3)+0.035*d4.x*cos(phase4)+0.012*d5.x*cos(phase5);",
-    "p.z+=0.50*d1.y*cos(phase1)+0.29*d2.y*cos(phase2)+0.11*d3.y*cos(phase3)+0.035*d4.y*cos(phase4)+0.012*d5.y*cos(phase5);",
-    "float h=waveHeight(worldXZ,uTime);",
-    "p.y=h;",
+    "vec3 p=position;vec2 baseXZ=vec2(p.x+uOrigin.x,p.z+uOrigin.y);",
+    "vec2 displacement;vec3 tangentX,tangentZ;float height,compression;",
+    "evaluateOcean(baseXZ,uTime,displacement,tangentX,tangentZ,height,compression);",
+    "p.x+=displacement.x;p.z+=displacement.y;p.y=height;",
     "vec4 world=modelMatrix*vec4(p,1.0);",
-    "vWorldPos=world.xyz;",
-    "vWorldXZ=worldXZ+vec2(p.x-position.x,p.z-position.z);",
-    "vHeight=h;",
+    "vWorldPos=world.xyz;vWorldXZ=baseXZ+displacement;",
+    "vWaveNormal=normalize(cross(tangentZ,tangentX));",
+    "vCompression=compression;vHeight=height;",
     "gl_Position=projectionMatrix*viewMatrix*world;",
     "}"
   ].join("\n");
@@ -203,77 +252,85 @@ function createOcean() {
     "uniform float uTime;",
     "uniform vec3 uSunDir;",
     "uniform float uTideZ;",
-    "uniform float uTideX;",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
+    "varying vec3 vWaveNormal;",
+    "varying float vCompression;",
     "varying float vHeight;",
-    "float waveHeight(vec2 p,float t){",
-    "float h=0.72*sin(p.x*0.010+p.y*0.004-t*0.72);",
-    "h+=0.44*sin(-p.x*0.006+p.y*0.014+t*0.82+1.4);",
-    "h+=0.24*sin(p.x*0.026-p.y*0.019-t*1.48);",
-    "h+=0.11*sin(-p.x*0.052-p.y*0.038+t*2.35);",
-    "h+=0.055*sin(p.x*0.12+p.y*0.075-t*3.0);",
-    "h+=0.022*sin(-p.x*0.23+p.y*0.16+t*4.4);",
-    "h+=0.025*sin(p.x*0.34+p.y*0.27-t*4.7);",
-    "h+=0.014*sin(-p.x*0.61+p.y*0.49+t*6.2);",
-    "float front=p.y-uTideZ;",
-    "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
-    "float crest=exp(-pow(front/130.0,2.0));",
-    "float shoulder=exp(-pow((front+210.0)/250.0,2.0));",
-    "h+=lateral*(5.4*crest+1.25*shoulder*sin(front*0.018-t*0.8));",
-    "return h;",
-    "}",
     "float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
-    "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1.0,0.0)),f.x),mix(hash(i+vec2(0.0,1.0)),hash(i+vec2(1.0,1.0)),f.x),f.y);}",
-    "vec3 skyColor(vec3 d){",
+    "float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);float a=hash(i),b=hash(i+vec2(1.0,0.0)),c=hash(i+vec2(0.0,1.0)),d=hash(i+vec2(1.0,1.0));return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}",
+    "float fbm(vec2 p){float n=0.0,a=0.5;for(int i=0;i<3;i++){n+=a*noise(p);p=p*2.03+vec2(17.1,9.2);a*=0.5;}return n;}",
+    "vec3 skyReflection(vec3 d){",
     "float h=clamp(d.y,0.0,1.0);",
-    "vec3 c=mix(vec3(0.70,0.58,0.46),vec3(0.05,0.15,0.22),pow(h,0.7));",
-    "float s=max(dot(normalize(d),normalize(uSunDir)),0.0);",
-    "c+=vec3(1.0,0.76,0.49)*(pow(s,500.0)*1.6+pow(s,35.0)*0.25);",
-    "return c;",
-    "}",
+    "vec3 sky=mix(vec3(0.66,0.60,0.51),vec3(0.045,0.12,0.17),pow(h,0.72));",
+    "vec2 cloudUV=d.xz/(max(0.12,d.y+0.32))*3.8+vec2(uTime*0.0015,-uTime*0.0011);",
+    "float cloudField=0.68*noise(cloudUV)+0.32*noise(cloudUV*2.7+vec2(3.1,7.4));",
+    "float clouds=smoothstep(0.49,0.73,cloudField)*smoothstep(0.015,0.48,d.y);",
+    "sky=mix(sky,vec3(0.75,0.79,0.76),clouds*0.38);",
+    "float sun=max(dot(normalize(d),normalize(uSunDir)),0.0);",
+    "sky+=vec3(1.0,0.78,0.56)*(pow(sun,620.0)*2.1+pow(sun,34.0)*0.30);",
+    "return sky;}",
+    "float distributionGGX(float nDotH,float roughness){float a=roughness*roughness;float a2=a*a;float d=nDotH*nDotH*(a2-1.0)+1.0;return a2/max(3.14159265*d*d,0.00001);}",
+    "float geometrySchlickGGX(float nDotX,float roughness){float r=roughness+1.0;float k=r*r*0.125;return nDotX/max(nDotX*(1.0-k)+k,0.00001);}",
     "void main(){",
-    "vec2 p=vWorldXZ;",
-    "float hx=waveHeight(p+vec2(0.65,0.0),uTime)-waveHeight(p-vec2(0.65,0.0),uTime);",
-    "float hz=waveHeight(p+vec2(0.0,0.65),uTime)-waveHeight(p-vec2(0.0,0.65),uTime);",
-    "vec3 n=normalize(vec3(-hx/1.3,1.0,-hz/1.3));",
-    "vec3 viewDir=normalize(cameraPosition-vWorldPos);",
-    "float fresnel=0.025+0.975*pow(1.0-max(dot(n,viewDir),0.0),5.0);",
-    "vec3 reflected=skyColor(reflect(-viewDir,n));",
-    "float diffuse=max(dot(n,normalize(uSunDir)),0.0);",
-    "vec3 deep=vec3(0.004,0.038,0.064);",
-    "vec3 shallow=vec3(0.012,0.17,0.22);",
-    "vec3 water=mix(deep,shallow,0.22+diffuse*0.42);",
-    "water=mix(water,reflected,0.24+fresnel*0.88);",
-    "float reflectedSun=max(dot(reflect(-normalize(uSunDir),n),viewDir),0.0);",
-    "float spec=pow(reflectedSun,105.0);",
-    "float sunGlint=pow(reflectedSun,25.0);",
-    "float glintNoise=0.62+noise(p*0.13+vec2(uTime*0.07,-uTime*0.05))*0.92;",
-    "water+=vec3(1.0,0.84,0.62)*(spec*2.1+sunGlint*0.13)*glintNoise;",
-    "float micro=noise(p*0.09+vec2(uTime*0.04,-uTime*0.03));",
-    "float crestNoise=noise(p*0.043+vec2(uTime*0.045,-uTime*0.032));",
-    "float crest=smoothstep(0.58,1.02,vHeight)*smoothstep(0.38,0.70,crestNoise);",
-    "float flecks=smoothstep(0.78,0.94,noise(p*0.17+vec2(-uTime*0.09,uTime*0.06)))*smoothstep(0.42,0.92,vHeight);",
-    "float streak=pow(max(sin(p.x*0.31+p.y*0.18+uTime*0.9)*0.5+0.5,0.0),15.0);",
-    "water=mix(water,vec3(0.76,0.91,0.91),clamp(crest*0.68+flecks*0.24+streak*0.035,0.0,0.82));",
-    "water*=0.985+micro*0.03;",
+    "vec2 p=vWorldXZ;vec3 N=normalize(vWaveNormal);",
+    // Small-scale travelling ripples influence the reflected highlights without overloading the mesh.
+    "float ph1=dot(p,vec2(0.83,0.55))*0.90-uTime*2.85;",
+    "float ph2=dot(p,vec2(-0.44,0.90))*1.42+uTime*4.05;",
+    "float ph3=dot(p,vec2(0.96,-0.27))*2.15-uTime*6.10;",
+    "float ph4=dot(p,vec2(-0.72,-0.69))*3.10+uTime*7.60;",
+    "vec2 microSlope=vec2(-0.060*0.90*0.83*sin(ph1)-0.032*1.42*(-0.44)*sin(ph2)-0.014*2.15*0.96*sin(ph3)-0.007*3.10*(-0.72)*sin(ph4),",
+    "0.060*0.90*0.55*cos(ph1)+0.032*1.42*0.90*cos(ph2)+0.014*2.15*(-0.27)*cos(ph3)+0.007*3.10*(-0.69)*cos(ph4));",
+    "N=normalize(N+vec3(-microSlope.x,0.0,-microSlope.y));",
+    "vec3 V=normalize(cameraPosition-vWorldPos);vec3 L=normalize(uSunDir);vec3 H=normalize(V+L);",
+    "float nDotV=max(dot(N,V),0.001);float nDotL=max(dot(N,L),0.0);",
+    "float nDotH=max(dot(N,H),0.0);float vDotH=max(dot(V,H),0.0);",
+    "float fresnel=0.02037+(1.0-0.02037)*pow(1.0-nDotV,5.0);",
+    "vec3 reflected=skyReflection(reflect(-V,N));",
+    "float microRough=fbm(p*0.055+vec2(uTime*0.025,-uTime*0.018));",
+    "float roughness=clamp(0.095+microRough*0.055+vCompression*0.075,0.075,0.29);",
+    "float D=distributionGGX(nDotH,roughness);",
+    "float G=geometrySchlickGGX(nDotV,roughness)*geometrySchlickGGX(max(nDotL,0.001),roughness);",
+    "vec3 F=vec3(0.02037)+(vec3(1.0)-vec3(0.02037))*pow(1.0-vDotH,5.0);",
+    "vec3 directSpec=D*G*F/max(4.0*nDotV*max(nDotL,0.001),0.001)*nDotL*vec3(1.0,0.86,0.68)*2.2;",
+    // Beer-Lambert-inspired attenuation plus blue-green in-scattering color the transmitted light.
+    "float opticalPath=2.8/max(nDotV,0.14);",
+    "vec3 attenuation=exp(-vec3(0.23,0.075,0.030)*opticalPath);",
+    "vec3 waterBody=mix(vec3(0.002,0.018,0.030),vec3(0.010,0.105,0.135),1.0-dot(attenuation,vec3(0.3333)));",
+    "waterBody+=vec3(0.002,0.025,0.030)*nDotL;",
+    "vec3 water=mix(waterBody,reflected,fresnel)+directSpec;",
+    // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
+    "float foamNoise=fbm(p*0.026+vec2(-uTime*0.038,uTime*0.021));",
+    "float foamGrain=noise(p*0.13+vec2(-uTime*0.12,uTime*0.075));",
+    "float compressionFoam=smoothstep(0.13,0.47,vCompression);",
+    "float tideFront=p.y-uTideZ+sin(p.x*0.0035+uTime*0.13)*14.0;",
+    "float tideCrest=exp(-pow(tideFront/31.0,2.0));",
+    "float crestFoam=tideCrest*smoothstep(0.34,0.68,foamNoise);",
+    "float whitecap=clamp(compressionFoam*(0.20+0.80*smoothstep(0.34,0.73,foamNoise))+crestFoam*0.78,0.0,0.88);",
+    "whitecap*=0.62+0.38*smoothstep(0.22,0.82,foamGrain);",
+    "float bubbles=smoothstep(0.70,0.90,noise(p*0.22+vec2(-uTime*0.15,uTime*0.10)))*whitecap;",
+    "vec3 foamColor=vec3(0.72,0.86,0.86)+vec3(0.10,0.10,0.08)*nDotL;",
+    "water=mix(water,foamColor,clamp(whitecap+bubbles*0.24,0.0,0.92));",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
-    "float fog=1.0-exp(-pow(distanceToCamera*0.00072,2.0));",
-    "vec3 horizon=vec3(0.43,0.56,0.58);",
-    "water=mix(water,horizon,clamp(fog,0.0,0.90));",
+    "float fog=1.0-exp(-pow(distanceToCamera*0.00052,2.0));",
+    "vec3 horizon=vec3(0.50,0.58,0.57);water=mix(water,horizon,clamp(fog,0.0,0.82));",
     "gl_FragColor=vec4(water,1.0);",
     "#include <tonemapping_fragment>",
     "#include <colorspace_fragment>",
     "}"
   ].join("\n");
 
+  const waveUniforms = OCEAN_WAVES.map(w => new THREE.Vector4(w.dirX,w.dirZ,w.k,w.amplitude));
+  const motionUniforms = OCEAN_WAVES.map(w => new THREE.Vector4(w.omega,w.phase,w.horizontalAmplitude,0));
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
       uOrigin: { value: new THREE.Vector2(0, 0) },
       uTideZ: { value: -720 },
       uTideX: { value: 0 },
-      uSunDir: { value: SUN_DIR.clone() }
+      uSunDir: { value: SUN_DIR.clone() },
+      uWaveData: { value: waveUniforms },
+      uWaveMotion: { value: motionUniforms }
     },
     vertexShader,
     fragmentShader,
@@ -287,63 +344,7 @@ function createOcean() {
 }
 const ocean = createOcean();
 
-function createTidalWall(height, width, zOffset, opacity, scale) {
-  const geometry = new THREE.PlaneGeometry(width, height, MOBILE ? 140 : 220, MOBILE ? 48 : 72);
-  geometry.translate(0, height * 0.5, 0);
-  const vertexShader = [
-    "uniform float uTime;",
-    "uniform float uWidth;",
-    "varying vec3 vPos;",
-    "void main(){",
-    "vec3 p=position;",
-    "float envelope=pow(max(0.0,1.0-abs(p.x)/(uWidth*0.5)),0.46);",
-    "float swell=0.84+0.16*sin(p.x*0.004+uTime*0.035);",
-    "p.y*=envelope*swell;",
-    "float crest=smoothstep(0.0,42.0,p.y);",
-    "p.y+=sin(p.x*0.0055+uTime*0.045)*13.0*crest*envelope;",
-    "p.y+=sin(p.x*0.015-uTime*0.08)*3.5*crest*envelope;",
-    "p.z+=(sin(p.x*0.008+uTime*0.052)+0.35*sin(p.y*0.032-uTime*0.12))*13.0*crest*envelope;",
-    "vPos=p;",
-    "gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);",
-    "}"
-  ].join("\n");
-  const fragmentShader = [
-    "uniform float uTime;",
-    "uniform float uOpacity;",
-    "varying vec3 vPos;",
-    "float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
-    "void main(){",
-    "float h=clamp(vPos.y/170.0,0.0,1.0);",
-    "float grain=hash(floor(vPos.xz*0.08+uTime*0.03));",
-    "float bands=0.5+0.5*sin(vPos.x*0.055+vPos.y*0.12+uTime*0.22);",
-    "vec3 lower=vec3(0.012,0.14,0.19);",
-    "vec3 upper=vec3(0.18,0.42,0.48);",
-    "vec3 color=mix(lower,upper,smoothstep(0.0,0.9,h));",
-    "color*=0.77+bands*0.24+grain*0.08;",
-    "float foam=smoothstep(0.80,0.96,h)*(0.45+0.55*grain);",
-    "color=mix(color,vec3(0.78,0.91,0.90),foam);",
-    "float sideFoam=smoothstep(0.9,1.0,bands)*smoothstep(0.35,0.72,h);",
-    "color=mix(color,vec3(0.8,0.94,0.92),sideFoam*0.22);",
-    "gl_FragColor=vec4(color,uOpacity);",
-    "}"
-  ].join("\n");
-  const material = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uOpacity: { value: opacity }, uWidth: { value: width } },
-    vertexShader,
-    fragmentShader,
-    transparent: opacity < 1,
-    depthWrite: opacity >= 1,
-    side: THREE.DoubleSide
-  });
-  const wall = new THREE.Mesh(geometry, material);
-  wall.position.y = -3.2;
-  wall.scale.setScalar(scale);
-  wall.frustumCulled = false;
-  scene.add(wall);
-  return { wall, material, zOffset };
-}
-const mainTide = createTidalWall(180, 1320, 630, 1.0, 1.0);
-const farTide = createTidalWall(105, 900, 1450, 0.42, 0.82);
+
 
 function createGargantua() {
   const group = new THREE.Group();
@@ -667,15 +668,6 @@ function updateScene(dt, speed) {
   ocean.material.uniforms.uTime.value = simulationTime;
   skyDome.position.copy(camera.position);
   skyDome.material.uniforms.uTime.value = simulationTime;
-
-  mainTide.wall.position.set(player.position.x, -3.2, tideFrontZ);
-  mainTide.material.uniforms.uTime.value = simulationTime;
-  farTide.wall.position.set(
-    player.position.x,
-    -3.2,
-    tideFrontZ - 780 + Math.sin(simulationTime * 0.026) * 75
-  );
-  farTide.material.uniforms.uTime.value = simulationTime * 0.72;
 
   gargantua.group.position.set(player.position.x - 355, 170, player.position.z - 1650);
   gargantua.ring1.rotation.z = Math.sin(simulationTime * 0.012) * 0.025;
