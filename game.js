@@ -89,6 +89,9 @@ let firstPerson = false;
 const keys = Object.create(null);
 const velocity = new THREE.Vector3();
 let verticalVelocity = 0;
+let jumpHeight = 0;
+let isAirborne = false;
+let jumpRequested = false;
 let spaceStrokeRequested = false;
 let walkPhase = 0;
 let splashTimer = 0;
@@ -1529,7 +1532,8 @@ function updatePlayer(dt) {
   const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085 + weatherState.windDirection.x*weatherState.wind*0.035;
   const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075 + weatherState.windDirection.y*weatherState.wind*0.035;
   const tideFlow = tide.approaching ? pressure * 0.72 : -pressure * 0.24;
-  const maxSpeed = (keys.ShiftLeft || keys.ShiftRight) ? 2.65 : 1.95;
+  const sprinting = !!(keys.ShiftLeft || keys.ShiftRight);
+  const maxSpeed = sprinting ? 3.18 : 1.95;
   const targetX = wish.x * maxSpeed + currentX;
   const targetZ = wish.z * maxSpeed + currentZ + tideFlow;
   const waterDragResponse = 3.2 / (1.0 + waterDepth * 0.8);
@@ -1543,9 +1547,43 @@ function updatePlayer(dt) {
   player.position.x += velocity.x * dt;
   player.position.z += velocity.z * dt;
 
-  // Boots remain in contact with the seabed; only the suit's centre of mass bobs.
-  player.position.y = GROUND_Y + 0.06;
   const lowView = firstPerson && !!(keys.ControlLeft || keys.ControlRight);
+
+  // A short, weighty hop: take-off and landing both disturb the shallow water.
+  if(jumpRequested){
+    if(!isAirborne&&!lowView){
+      isAirborne=true;
+      verticalVelocity=4.55;
+      splashTimer=0;
+      spawnSpray(player.position.x,player.position.z,22);
+      spawnRipple(player.position.x,player.position.z,1.02);
+    }
+    jumpRequested=false;
+  }
+  if(isAirborne){
+    verticalVelocity-=10.2*dt;
+    jumpHeight+=verticalVelocity*dt;
+    if(jumpHeight<=0){
+      jumpHeight=0;
+      verticalVelocity=0;
+      isAirborne=false;
+      splashTimer=0;
+      const landingX=player.position.x;
+      const landingZ=player.position.z;
+      spawnSpray(landingX,landingZ,42);
+      spawnRipple(landingX,landingZ,1.55);
+      const landingSide=new THREE.Vector3(0.22,0,0)
+        .applyAxisAngle(new THREE.Vector3(0,1,0),explorer.root.rotation.y);
+      for(const side of [-1,1]){
+        const footX=landingX+landingSide.x*side;
+        const footZ=landingZ+landingSide.z*side-0.10;
+        spawnSpray(footX,footZ,9);
+        spawnRipple(footX,footZ,0.82);
+      }
+    }
+  }
+  // The original seabed height remains the floor; the jump adds a temporary offset.
+  player.position.y = GROUND_Y + 0.06 + jumpHeight;
   if (spaceStrokeRequested) {
     velocity.x += forward.x * 0.9;
     velocity.z += forward.z * 0.9;
@@ -1560,10 +1598,12 @@ function updatePlayer(dt) {
     let difference = desiredYaw - explorer.root.rotation.y;
     difference = Math.atan2(Math.sin(difference), Math.cos(difference));
     explorer.root.rotation.y += difference * Math.min(1, dt * 6.8);
-    walkPhase += dt * (2.2 + horizontalSpeed * 2.5);
+    walkPhase += dt * (2.2 + horizontalSpeed * (sprinting ? 2.9 : 2.5));
     const gait=Math.sin(walkPhase);
     const oppositeGait=Math.sin(walkPhase+Math.PI);
-    const stride=lowView?0.25:0.38;
+    const stride=lowView?0.25:(sprinting?0.49:0.38);
+    const kneeDrive=sprinting?0.82:0.62;
+    const armSwing=sprinting?0.36:0.28;
     for(let side=0;side<2;side++){
       const legWave=side===0?gait:oppositeGait;
       const armWave=-legWave;
@@ -1574,14 +1614,14 @@ function updatePlayer(dt) {
         Math.sin(walkPhase+side*Math.PI)*0.025,
         -sideSign*0.018
       );
-      explorer.joints.knees[side].set(Math.max(0,legWave)*0.62+0.045,0,sideSign*0.008);
+      explorer.joints.knees[side].set(Math.max(0,legWave)*kneeDrive+0.045,0,sideSign*0.008);
       explorer.joints.ankles[side].set(
         -legWave*0.22-Math.max(0,legWave)*0.12+recovery*0.035,
         0,
         -sideSign*0.012
       );
       explorer.joints.toes[side].set(0.18*recovery,0,0);
-      explorer.joints.shoulders[side].set(armWave*0.28-0.04,sideSign*0.018,sideSign*0.035);
+      explorer.joints.shoulders[side].set(armWave*armSwing-0.04,sideSign*0.018,sideSign*0.035);
       explorer.joints.elbows[side].set(0.17+Math.max(0,armWave)*0.24,0,sideSign*0.02);
       explorer.joints.wrists[side].set(
         -0.08+Math.sin(walkPhase*0.5+side)*0.045,
@@ -1596,7 +1636,7 @@ function updatePlayer(dt) {
     }
     splashTimer += dt;
     rippleTimer += dt;
-    if (splashTimer > (horizontalSpeed > 2.3 ? 0.25 : 0.34)) {
+    if (!isAirborne && splashTimer > (sprinting ? 0.19 : (horizontalSpeed > 2.3 ? 0.25 : 0.34))) {
       const footSide=Math.sin(walkPhase)>=0?1:-1;
       const localFoot=new THREE.Vector3(footSide*0.22,0,-0.12)
         .applyAxisAngle(new THREE.Vector3(0,1,0),explorer.root.rotation.y);
@@ -1604,7 +1644,7 @@ function updatePlayer(dt) {
       const stepZ=player.position.z+localFoot.z;
       const stepStrength=THREE.MathUtils.clamp(0.60+horizontalSpeed*0.28,0.65,1.28);
       spawnRipple(stepX,stepZ,stepStrength);
-      spawnSpray(stepX,stepZ,horizontalSpeed>2.3?13:8);
+      spawnSpray(stepX,stepZ,sprinting?17:(horizontalSpeed>2.3?13:8));
       splashTimer=0;
     }
   } else {
@@ -1687,7 +1727,8 @@ function updateExplorerLife(dt,speed){
       digit.distal.set(curl*0.68,0,0);
     });
   }
-  const locomotionLean=THREE.MathUtils.clamp(-speed*0.035,-0.085,0);
+  const sprinting=!!(keys.ShiftLeft||keys.ShiftRight);
+  const locomotionLean=THREE.MathUtils.clamp(-speed*(sprinting?0.045:0.035),sprinting?-0.13:-0.085,0);
   const breathingSway=Math.sin(t*0.52)*0.006*idleAmount;
   const sideBalance=THREE.MathUtils.clamp(-velocity.x*0.025,-0.10,0.10);
   explorer.joints.spine.set(locomotionLean+breathingSway,0,sideBalance);
@@ -1697,6 +1738,28 @@ function updateExplorerLife(dt,speed){
     0,
     THREE.MathUtils.clamp(velocity.x*0.012,-0.045,0.045)
   );
+
+  // Compact airborne pose: knees tuck slightly and arms counterbalance the hop.
+  if(isAirborne){
+    const tuck=THREE.MathUtils.clamp(jumpHeight/0.95,0,1);
+    const descending=verticalVelocity<0?1:0;
+    for(let side=0;side<2;side++){
+      const sideSign=side===0?-1:1;
+      explorer.joints.hips[side].set(-0.10-tuck*0.07,0,sideSign*0.025);
+      explorer.joints.knees[side].set(0.34+tuck*0.16+descending*0.06,0,0);
+      explorer.joints.ankles[side].set(-0.12,0,0);
+      explorer.joints.toes[side].set(0.04,0,0);
+      explorer.joints.shoulders[side].set(-0.32,sideSign*0.04,sideSign*0.14);
+      explorer.joints.elbows[side].set(0.34,0,sideSign*0.025);
+      explorer.joints.wrists[side].set(-0.04,0,0);
+      explorer.joints.fingers[side].forEach(digit=>{
+        digit.base.set(0.13,0,digit.base.target.z);
+        digit.distal.set(0.09,0,0);
+      });
+    }
+    explorer.joints.spine.set(-0.045,0,0);
+    explorer.joints.thorax.set(0.02,0,0);
+  }
 }
 
 const cameraTarget=new THREE.Vector3();
@@ -2009,8 +2072,9 @@ window.addEventListener("keydown",event=>{
     explorer.root.visible = !firstPerson;
     return;
   }
-  if (event.code === "Space" && !keys.Space) {
-    spaceStrokeRequested = true;
+  if (event.code === "Space" && !keys.Space && started && !paused && !journalOpen) {
+    if(keys.ControlLeft||keys.ControlRight)spaceStrokeRequested=true;
+    else jumpRequested=true;
   }
   if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.code)) event.preventDefault();
   keys[event.code] = true;
