@@ -89,16 +89,16 @@ const OCEAN_WIND_SPEED = 8.0;
 const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.28;
 const OCEAN_WAVES_COUNT = 10;
 const OCEAN_WAVE_BINS = [
-  { wavelength: 60, angle: -8, phase: 0.4 },
-  { wavelength: 44, angle: 5, phase: 2.2 },
-  { wavelength: 33, angle: -14, phase: 4.1 },
-  { wavelength: 25, angle: 12, phase: 1.5 },
-  { wavelength: 19, angle: -21, phase: 3.2 },
-  { wavelength: 15, angle: 22, phase: 5.1 },
-  { wavelength: 12, angle: -28, phase: 0.9 },
-  { wavelength: 9, angle: 29, phase: 2.8 },
-  { wavelength: 6.5, angle: -35, phase: 4.7 },
-  { wavelength: 4.5, angle: 34, phase: 1.9 }
+  { wavelength: 110, angle: -12, phase: 0.4 },
+  { wavelength: 88, angle: 7, phase: 2.2 },
+  { wavelength: 72, angle: -20, phase: 4.1 },
+  { wavelength: 60, angle: 15, phase: 1.5 },
+  { wavelength: 50, angle: -29, phase: 3.2 },
+  { wavelength: 43, angle: 24, phase: 5.1 },
+  { wavelength: 38, angle: -38, phase: 0.9 },
+  { wavelength: 34, angle: 32, phase: 2.8 },
+  { wavelength: 31, angle: -45, phase: 4.7 },
+  { wavelength: 28, angle: 40, phase: 1.9 }
 ];
 
 function jonswapAmplitude(wavelength) {
@@ -142,7 +142,7 @@ function waveHeight(x, z, time) {
   const trailingSwell = 0.10 * Math.exp(-Math.pow((front + 105) / 85, 2)) *
     Math.sin(front * 0.024 - time * 0.55);
   height += tideAmplitude * lateral * (mainSwell + trailingSwell);
-  const verticalLimit = 0.11;
+  const verticalLimit = 0.14;
   const normalizedHeight = height / verticalLimit;
   const boundedHeight = verticalLimit * normalizedHeight /
     Math.sqrt(1 + normalizedHeight * normalizedHeight);
@@ -222,7 +222,7 @@ const skyDome = createSkyDome();
 
 function createOcean() {
   // Long gravity waves are geometry; short ripples are evaluated in the pixel shader.
-  const segments = MOBILE ? 300 : 440;
+  const segments = MOBILE ? 360 : 560;
   const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, segments, segments);
   geometry.rotateX(-Math.PI / 2);
 
@@ -264,11 +264,11 @@ function createOcean() {
     "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
     "dYdx+=lateralDx*tideShape;",
     "dYdz+=lateral*tideSlope;",
-    "float waveRatio=height/0.11;",
+    "float waveRatio=height/0.14;",
     "float waveRoot=sqrt(1.0+waveRatio*waveRatio);",
     "float softHeight=waveRatio/waveRoot;",
     "float verticalScale=1.0/pow(1.0+waveRatio*waveRatio,1.5);",
-    "height=0.11*softHeight;",
+    "height=0.14*softHeight;",
     "dYdx*=verticalScale;",
     "dYdz*=verticalScale;",
     "tangentX=vec3(dXdx,dYdx,dZdx);",
@@ -317,7 +317,7 @@ function createOcean() {
     "float cirrus=smoothstep(0.61,0.75,fbm(cloudUV*9.5+vec2(31.0,8.0)))*smoothstep(0.08,0.48,d.y)*0.16;",
     "vec3 cloudColor=mix(vec3(0.25,0.34,0.38),vec3(0.98,0.91,0.79),smoothstep(0.0,0.62,dot(normalize(d),normalize(uSunDir))));",
     "sky=mix(sky,cloudColor,clamp(clouds*0.88+cirrus,0.0,0.94));",
-
+    "float sun=max(dot(normalize(d),normalize(uSunDir)),0.0);",
     "sky+=vec3(1.0,0.78,0.56)*(pow(sun,620.0)*2.1+pow(sun,34.0)*0.30);",
     "return sky;}",
     "float distributionGGX(float nDotH,float roughness){float a=roughness*roughness;float a2=a*a;float d=nDotH*nDotH*(a2-1.0)+1.0;return a2/max(3.14159265*d*d,0.00001);}",
@@ -325,12 +325,15 @@ function createOcean() {
     "void main(){",
     "vec2 p=vWorldXZ;vec3 N=normalize(vWaveNormal);",
     // Small-scale travelling ripples influence the reflected highlights without overloading the mesh.
-    "float ph1=dot(p,vec2(0.83,0.55))*0.90-uTime*2.85;",
-    "float ph2=dot(p,vec2(-0.44,0.90))*1.42+uTime*4.05;",
-    "float ph3=dot(p,vec2(0.96,-0.27))*2.15-uTime*6.10;",
-    "float ph4=dot(p,vec2(-0.72,-0.69))*3.10+uTime*7.60;",
-    "vec2 microSlope=vec2(-0.060*0.90*0.83*sin(ph1)-0.032*1.42*(-0.44)*sin(ph2)-0.014*2.15*0.96*sin(ph3)-0.007*3.10*(-0.72)*sin(ph4),",
-    "0.060*0.90*0.55*cos(ph1)+0.032*1.42*0.90*cos(ph2)+0.014*2.15*(-0.27)*cos(ph3)+0.007*3.10*(-0.69)*cos(ph4));",
+    "float ph1=dot(p,vec2(0.83,0.55))*0.72-uTime*1.90;",
+    "float ph2=dot(p,vec2(-0.44,0.90))*1.35+uTime*3.20;",
+    "float ph3=dot(p,vec2(0.96,-0.27))*2.25-uTime*5.00;",
+    "float ph4=dot(p,vec2(-0.72,-0.69))*3.75+uTime*7.10;",
+    "float ph5=dot(p,vec2(0.18,0.98))*5.80-uTime*9.40;",
+    "float ph6=dot(p,vec2(-0.95,0.31))*8.20+uTime*12.30;",
+    "vec2 microSlope=vec2(",
+    "0.085*0.72*0.83*cos(ph1)+0.050*1.35*(-0.44)*cos(ph2)+0.025*2.25*0.96*cos(ph3)+0.012*3.75*(-0.72)*cos(ph4)+0.006*5.80*0.18*cos(ph5)+0.003*8.20*(-0.95)*cos(ph6),",
+    "0.085*0.72*0.55*cos(ph1)+0.050*1.35*0.90*cos(ph2)+0.025*2.25*(-0.27)*cos(ph3)+0.012*3.75*(-0.69)*cos(ph4)+0.006*5.80*0.98*cos(ph5)+0.003*8.20*0.31*cos(ph6));",
     "vec2 wakeSlope=vec2(0.0);",
     "float wakeFoam=0.0;",
     "for(int i=0;i<8;i++){",
@@ -338,11 +341,11 @@ function createOcean() {
     "if(wake.w>0.001){",
     "vec2 offset=p-wake.xy;",
     "float radius=length(offset);",
-    "float ringRadius=0.35+wake.z*3.15;",
+    "float ringRadius=0.42+wake.z*3.35;",
     "float delta=radius-ringRadius;",
-    "float envelope=exp(-delta*delta/0.32)*exp(-wake.z*1.10)*wake.w;",
+    "float envelope=exp(-delta*delta/0.48)*exp(-wake.z*0.92)*wake.w;",
     "float phase=delta*3.4;",
-    "float derivative=0.035*envelope*(3.4*cos(phase)-(2.0*delta/0.32)*sin(phase));",
+    "float derivative=0.105*envelope*(3.8*cos(phase)-(2.0*delta/0.48)*sin(phase));",
     "wakeSlope+=derivative*offset/max(radius,0.02);",
     "wakeFoam=max(wakeFoam,envelope);",
     "}",
@@ -353,8 +356,10 @@ function createOcean() {
     "float nDotH=max(dot(N,H),0.0);float vDotH=max(dot(V,H),0.0);",
     "float fresnel=0.02037+(1.0-0.02037)*pow(1.0-nDotV,5.0);",
     "vec3 reflected=skyReflection(reflect(-V,N));",
-    "float microRough=fbm(p*0.055+vec2(uTime*0.025,-uTime*0.018));",
-    "float roughness=clamp(0.095+microRough*0.055+vCompression*0.075,0.075,0.29);",
+    "float microRough=fbm(p*0.095+vec2(uTime*0.042,-uTime*0.031));",
+    "float detailRough=fbm(p*0.24+vec2(-uTime*0.085,uTime*0.063));",
+    "float slopeRough=length(microSlope);",
+    "float roughness=clamp(0.145+microRough*0.10+detailRough*0.055+slopeRough*0.20+vCompression*0.095,0.13,0.46);",
     "float D=distributionGGX(nDotH,roughness);",
     "float G=geometrySchlickGGX(nDotV,roughness)*geometrySchlickGGX(max(nDotL,0.001),roughness);",
     "vec3 F=vec3(0.02037)+(vec3(1.0)-vec3(0.02037))*pow(1.0-vDotH,5.0);",
@@ -369,7 +374,7 @@ function createOcean() {
     "vec3 attenuation=exp(-vec3(0.23,0.075,0.030)*opticalPath);",
     "vec3 waterBody=mix(vec3(0.006,0.065,0.082),vec3(0.040,0.235,0.275),1.0-dot(attenuation,vec3(0.3333)));",
     "waterBody+=vec3(0.014,0.060,0.072)*(0.38+0.62*nDotL);",
-    "float reflectionWeight=clamp(fresnel*1.65+0.025,0.025,0.72);",
+    "float reflectionWeight=clamp(fresnel,0.02037,0.96);",
     "vec3 water=mix(waterBody,reflected,reflectionWeight)+directSpec+movingSunGlints;",
     // Shallow transmitted view of the sand with refractive caustic light drifting across it.
     "vec2 sandUV=p*0.19;",
@@ -386,22 +391,28 @@ function createOcean() {
     "float bottomMix=(1.0-fresnel)*bottomVisibility*0.34*uUnderwaterView;",
     "water=mix(water,sandLit,bottomMix);",
     // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
-    "float foamNoise=fbm(p*0.041+vec2(-uTime*0.055,uTime*0.031));",
-    "float foamGrain=noise(p*0.19+vec2(-uTime*0.15,uTime*0.095));",
-    "float compressionFoam=smoothstep(0.10,0.34,vCompression);",
-    "float localCrest=smoothstep(0.10,0.18,vHeight);",
+    "vec2 foamFlow=p*0.052+vec2(-uTime*0.042,uTime*0.026);",
+    "float foamNoise=fbm(foamFlow);",
+    "float foamDetail=fbm(foamFlow*3.6+vec2(uTime*0.075,-uTime*0.052));",
+    "float foamGrain=noise(p*0.22+vec2(-uTime*0.17,uTime*0.11));",
+    "float compressionFoam=smoothstep(0.13,0.36,vCompression);",
+    "float localCrest=smoothstep(0.035,0.115,vHeight);",
     "float tideFront=p.y-uTideZ;",
     "float tideCrest=exp(-pow(tideFront/22.0,2.0));",
-    "float crestFoam=tideCrest*smoothstep(0.28,0.64,foamNoise);",
-    "float foamRibbons=smoothstep(0.60,0.78,noise(p*0.075+vec2(-uTime*0.08,uTime*0.05)))*localCrest;",
-    "float whitecap=clamp(compressionFoam*(0.18+0.82*smoothstep(0.30,0.70,foamNoise))+crestFoam*0.92+foamRibbons*0.18,0.0,0.86);",
-    "whitecap*=0.48+0.52*smoothstep(0.18,0.84,foamGrain);",
+    "float crestBreakup=smoothstep(0.43,0.69,foamNoise+0.18*(foamDetail-0.5));",
+    "float crestFoam=localCrest*crestBreakup*0.28;",
+    "float tideFoam=tideCrest*smoothstep(0.44,0.70,foamNoise)*0.36;",
+    "float foamRibbons=smoothstep(0.58,0.78,noise(p*0.085+vec2(-uTime*0.095,uTime*0.064)))*localCrest*0.22;",
+    "float whitecap=clamp(compressionFoam*(0.16+0.84*crestBreakup)+crestFoam+tideFoam+foamRibbons,0.0,0.82);",
+    "whitecap*=0.42+0.58*smoothstep(0.16,0.86,foamGrain);",
     "float bubbles=smoothstep(0.68,0.91,noise(p*0.25+vec2(-uTime*0.18,uTime*0.12)))*whitecap;",
     "vec3 foamColor=vec3(0.72,0.86,0.86)+vec3(0.10,0.10,0.08)*nDotL;",
     "water=mix(water,foamColor,clamp(whitecap+bubbles*0.24,0.0,0.92));",
     "float wakeFoamNoise=noise(p*0.24+vec2(-uTime*0.18,uTime*0.13));",
-    "float brokenWakeFoam=wakeFoam*smoothstep(0.34,0.68,wakeFoamNoise);",
-    "water=mix(water,vec3(0.82,0.94,0.94),clamp(brokenWakeFoam*0.78,0.0,0.72));",
+    "float brokenWakeFoam=wakeFoam*smoothstep(0.31,0.66,wakeFoamNoise);",
+    "float wakeFoamFlecks=noise(p*0.46+vec2(-uTime*0.22,uTime*0.17));",
+    "float wakeFoamMask=brokenWakeFoam*smoothstep(0.28,0.76,wakeFoamFlecks);",
+    "water=mix(water,vec3(0.86,0.96,0.96),clamp(wakeFoamMask*0.88,0.0,0.78));",
     "float underwaterView=uUnderwaterView;",
     "water=mix(water,vec3(0.018,0.115,0.145),underwaterView*0.44);",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
@@ -799,7 +810,7 @@ function spawnRipple(x=player.position.x,z=player.position.z,strength=0.8){
     r.expandSpeed=band===0?2.55:1.95;
     r.baseOpacity=(band===0?0.48:0.27)*strength;
     r.mesh.visible=true;
-    r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.055+band*0.008,z);
+    r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.018+band*0.006,z);
     r.mesh.scale.setScalar(r.baseScale);
     r.mesh.rotation.z=Math.random()*Math.PI;
     r.material.opacity=r.baseOpacity;
@@ -820,7 +831,7 @@ function updateRipples(dt){
     r.age+=dt;
     r.life-=dt;
     const fade=THREE.MathUtils.clamp(r.life/1.05,0,1);
-    r.mesh.position.y=waveHeight(r.x,r.z,simulationTime)+0.055;
+    r.mesh.position.y=waveHeight(r.x,r.z,simulationTime)+0.018;
     r.mesh.scale.setScalar(r.baseScale+r.age*r.expandSpeed);
     r.material.opacity=r.baseOpacity*Math.pow(fade,1.35);
     if(r.life<=0)r.mesh.visible=false;
