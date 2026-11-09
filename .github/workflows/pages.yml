@@ -23,8 +23,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Validate inline JavaScript module
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          html = Path("index.html").read_text(encoding="utf-8")
+          start = html.index('<script type="module">') + len('<script type="module">')
+          end = html.index('</script>', start)
+          Path('/tmp/ton618-module.mjs').write_text(html[start:end], encoding='utf-8')
+          PY
+          node --check /tmp/ton618-module.mjs
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - name: Upload static site
         uses: actions/upload-pages-artifact@v3
         with:
