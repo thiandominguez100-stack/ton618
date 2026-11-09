@@ -754,6 +754,7 @@ function makeExplorer() {
     parent.add(mesh);
     return mesh;
   };
+  const hipPouchParts=[];
 
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.40,0.48,1.12,18,1), suit);
   torso.position.y = 1.66; root.add(torso);
@@ -859,7 +860,6 @@ function makeExplorer() {
   lowerChestPort.rotation.x=Math.PI/2;
 
   const legPivots=[],kneePivots=[],anklePivots=[],toePivots=[];
-  const hipPouchParts=[];
   const hipJointMaterial=mat(0x425b63,0.38,0.62);
   const bearingMaterial=mat(0xc28b5a,0.34,0.58);
   for(const side of [-1,1]){
