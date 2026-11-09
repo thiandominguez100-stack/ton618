@@ -405,6 +405,13 @@ function createOcean() {
     "vec2 microSlope=vec2(",
     "0.085*0.72*0.83*cos(ph1)+0.050*1.35*(-0.44)*cos(ph2)+0.025*2.25*0.96*cos(ph3)+0.012*3.75*(-0.72)*cos(ph4)+0.006*5.80*0.18*cos(ph5)+0.003*8.20*(-0.95)*cos(ph6),",
     "0.085*0.72*0.55*cos(ph1)+0.050*1.35*0.90*cos(ph2)+0.025*2.25*(-0.27)*cos(ph3)+0.012*3.75*(-0.69)*cos(ph4)+0.006*5.80*0.98*cos(ph5)+0.003*8.20*0.31*cos(ph6));",
+    "vec2 windAxis=normalize(uWindDirection);",
+    "vec2 crossAxis=vec2(-windAxis.y,windAxis.x);",
+    "float capillaryA=dot(p,windAxis)*11.8+dot(p,crossAxis)*1.9-uTime*(7.4+uWindStrength*4.0);",
+    "float capillaryB=dot(p,windAxis)*19.5-dot(p,crossAxis)*5.4+uTime*(10.8+uWindStrength*5.2);",
+    "float capillaryC=dot(p,crossAxis)*14.0-dot(p,windAxis)*4.1-uTime*(8.6+uWindStrength*4.8);",
+    "vec2 capillarySlope=windAxis*(0.007*11.8*cos(capillaryA)+0.0035*19.5*cos(capillaryB))+crossAxis*(0.0045*14.0*cos(capillaryC));",
+    "float capillaryGrain=0.5+0.5*sin(capillaryA*0.42+sin(capillaryB*0.28)*0.85);",
     "vec2 wakeSlope=vec2(0.0);",
     "float wakeFoam=0.0;",
     "for(int i=0;i<8;i++){",
@@ -421,7 +428,7 @@ function createOcean() {
     "wakeFoam=max(wakeFoam,envelope);",
     "}",
     "}",
-    "N=normalize(N+vec3(-microSlope.x-wakeSlope.x,0.0,-microSlope.y-wakeSlope.y));",
+    "N=normalize(N+vec3(-microSlope.x-capillarySlope.x-wakeSlope.x,0.0,-microSlope.y-capillarySlope.y-wakeSlope.y));",
     "vec3 V=normalize(cameraPosition-vWorldPos);vec3 L=normalize(uSunDir);vec3 H=normalize(V+L);",
     "float nDotV=max(dot(N,V),0.001);float nDotL=max(dot(N,L),0.0);",
     "float nDotH=max(dot(N,H),0.0);float vDotH=max(dot(V,H),0.0);",
@@ -438,8 +445,9 @@ function createOcean() {
     "float mirrorSun=max(dot(reflect(-L,N),V),0.0);",
     "float sunStreak=pow(mirrorSun,78.0);",
     "float broadSun=pow(mirrorSun,20.0);",
-    "float glintBreakup=0.52+0.92*noise(p*0.16+vec2(-uTime*0.12,uTime*0.08));",
-    "vec3 movingSunGlints=vec3(1.0,0.86,0.69)*(sunStreak*1.05+broadSun*0.11)*glintBreakup;",
+    "float glintBreakup=0.42+0.98*noise(p*0.16+vec2(-uTime*0.12,uTime*0.08));",
+    "float capillarySparkle=pow(max(mirrorSun,0.0),190.0)*smoothstep(0.38,0.92,capillaryGrain)*noise(p*0.72+vec2(-uTime*0.26,uTime*0.19));",
+    "vec3 movingSunGlints=vec3(1.0,0.86,0.69)*(sunStreak*1.05+broadSun*0.11+capillarySparkle*0.34)*glintBreakup;",
     // Beer-Lambert-inspired attenuation plus blue-green in-scattering color the transmitted light.
     "float opticalPath=2.8/max(nDotV,0.14);",
     "vec3 attenuation=exp(-vec3(0.23,0.075,0.030)*opticalPath);",
@@ -753,16 +761,22 @@ function makeExplorer() {
   const belt = new THREE.Mesh(new THREE.TorusGeometry(0.405,0.055,8,32),orange);
   belt.position.y=1.17;root.add(belt);
 
-  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.42,28,22),suit);
-  helmet.position.y=2.72;root.add(helmet);
-  const visorMesh = new THREE.Mesh(new THREE.SphereGeometry(0.335,28,20),glass);
-  visorMesh.position.set(0,2.73,-0.16);visorMesh.scale.set(0.9,0.82,0.42);root.add(visorMesh);
-  const visorLine = new THREE.Mesh(new THREE.TorusGeometry(0.365,0.025,8,36),orange);
-  visorLine.position.set(0,2.73,-0.05);visorLine.scale.set(1,0.95,0.72);root.add(visorLine);
-  const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.04,0.34,8),dark);
-  antenna.position.set(0.24,3.1,0.02);root.add(antenna);
-  const antennaLight = new THREE.Mesh(new THREE.SphereGeometry(0.055,10,8),glow);
-  antennaLight.position.set(0.24,3.28,0.02);root.add(antennaLight);
+  const headPivot = new THREE.Group();
+  headPivot.position.set(0,2.42,0);
+  root.add(headPivot);
+  const addHeadPart=(geometry,material,position)=>{
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.position.set(position[0],position[1]-2.42,position[2]);
+    headPivot.add(mesh);
+    return mesh;
+  };
+  const helmet = addHeadPart(new THREE.SphereGeometry(0.42,28,22),suit,[0,2.72,0]);
+  const visorMesh = addHeadPart(new THREE.SphereGeometry(0.335,28,20),glass,[0,2.73,-0.16]);
+  visorMesh.scale.set(0.9,0.82,0.42);
+  const visorLine = addHeadPart(new THREE.TorusGeometry(0.365,0.025,8,36),orange,[0,2.73,-0.05]);
+  visorLine.scale.set(1,0.95,0.72);
+  const antenna = addHeadPart(new THREE.CylinderGeometry(0.025,0.04,0.34,8),dark,[0.24,3.1,0.02]);
+  const antennaLight = addHeadPart(new THREE.SphereGeometry(0.055,10,8),glow,[0.24,3.28,0.02]);
 
   const backpack = new THREE.Mesh(new THREE.BoxGeometry(0.72,0.92,0.36),orange);
   backpack.position.set(0,1.78,0.48);root.add(backpack);
@@ -782,15 +796,15 @@ function makeExplorer() {
   helmetLowerRing.rotation.x=Math.PI/2;
 
   for(const side of [-1,1]){
-    const commPod=addPart(new THREE.CylinderGeometry(0.105,0.12,0.16,14),panel,[side*0.39,2.72,0.035]);
+    const commPod=addHeadPart(new THREE.CylinderGeometry(0.105,0.12,0.16,14),panel,[side*0.39,2.72,0.035]);
     commPod.rotation.z=Math.PI/2;
-    const commCap=addPart(new THREE.SphereGeometry(0.09,12,10),orange,[side*0.47,2.72,0.035]);
+    const commCap=addHeadPart(new THREE.SphereGeometry(0.09,12,10),orange,[side*0.47,2.72,0.035]);
     commCap.scale.set(0.45,1,1);
   }
-  const visorReflection=addPart(new THREE.SphereGeometry(0.12,16,12),visorGlint,[-0.12,2.83,-0.292]);
+  const visorReflection=addHeadPart(new THREE.SphereGeometry(0.12,16,12),visorGlint,[-0.12,2.83,-0.292]);
   visorReflection.scale.set(0.85,0.22,0.10);
   visorReflection.rotation.z=-0.28;
-  const visorStatus=addPart(new THREE.SphereGeometry(0.035,10,8),glow,[0.27,2.58,-0.285]);
+  const visorStatus=addHeadPart(new THREE.SphereGeometry(0.035,10,8),glow,[0.27,2.58,-0.285]);
 
   const chestSeal=addPart(new THREE.CylinderGeometry(0.37,0.39,0.13,24),rubber,[0,2.34,0]);
   const chestCollar=addPart(new THREE.TorusGeometry(0.36,0.028,8,40),trim,[0,2.35,0]);
@@ -841,49 +855,85 @@ function makeExplorer() {
   const lowerChestPort=addPart(new THREE.CylinderGeometry(0.075,0.075,0.05,14),orange,[0,1.47,-0.43]);
   lowerChestPort.rotation.x=Math.PI/2;
 
-  const legPivots=[];
+  const legPivots=[],kneePivots=[],anklePivots=[];
+  const hipJointMaterial=mat(0x425b63,0.38,0.62);
+  const bearingMaterial=mat(0xc28b5a,0.34,0.58);
   for(const side of [-1,1]){
-    const pivot=new THREE.Group();pivot.position.set(side*0.22,0.94,0);root.add(pivot);
-    const thigh=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.145,0.48,16),suit);
-    thigh.position.y=-0.24;pivot.add(thigh);
-    const knee=new THREE.Mesh(new THREE.SphereGeometry(0.145,14,12),orange);
-    knee.position.y=-0.49;pivot.add(knee);
-    const kneeGuard=new THREE.Mesh(new THREE.SphereGeometry(0.13,12,10),dark);
-    kneeGuard.position.set(0,-0.48,-0.115);kneeGuard.scale.set(0.92,0.78,0.34);pivot.add(kneeGuard);
-    const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.125,0.15,0.49,14),suit);
-    shin.position.y=-0.735;pivot.add(shin);
-    const shinGuard=new THREE.Mesh(new THREE.BoxGeometry(0.19,0.32,0.07),panel);
-    shinGuard.position.set(0,-0.73,-0.14);pivot.add(shinGuard);
-    const shinIndicator=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.025,0.018),glow);
-    shinIndicator.position.set(0,-0.69,-0.18);pivot.add(shinIndicator);
-    const shinSeal=new THREE.Mesh(new THREE.TorusGeometry(0.132,0.027,7,18),orange);
-    shinSeal.position.y=-0.89;shinSeal.rotation.x=Math.PI/2;pivot.add(shinSeal);
-    const boot=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.24,0.48),dark);
-    boot.position.set(0,-0.88,-0.06);pivot.add(boot);
-    const bootSole=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.065,0.50),rubber);
-    bootSole.position.set(0,-1.01,-0.065);pivot.add(bootSole);
-    const toeCap=new THREE.Mesh(new THREE.BoxGeometry(0.29,0.11,0.13),trim);
-    toeCap.position.set(0,-0.91,-0.285);pivot.add(toeCap);
-    const bootStripe=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.045,0.12),glow);
-    bootStripe.position.set(0,-0.82,-0.26);pivot.add(bootStripe);
-    legPivots.push(pivot);
+    const hip=new THREE.Group();hip.position.set(side*0.22,0.94,0);root.add(hip);
+    const hipBearing=new THREE.Mesh(new THREE.SphereGeometry(0.17,16,12),hipJointMaterial);
+    hipBearing.position.set(0,-0.035,0);hip.add(hipBearing);
+    const thigh=new THREE.Mesh(new THREE.CylinderGeometry(0.145,0.13,0.45,18),suit);
+    thigh.position.y=-0.225;hip.add(thigh);
+    const thighShell=new THREE.Mesh(new THREE.SphereGeometry(0.16,16,12),suit);
+    thighShell.position.set(0,-0.22,-0.025);thighShell.scale.set(1,1.45,0.82);hip.add(thighShell);
+
+    const kneePivot=new THREE.Group();kneePivot.position.y=-0.45;hip.add(kneePivot);
+    const knee=new THREE.Mesh(new THREE.SphereGeometry(0.145,18,14),bearingMaterial);
+    kneePivot.add(knee);
+    const kneeCap=new THREE.Mesh(new THREE.SphereGeometry(0.135,16,12),orange);
+    kneeCap.position.set(0,0,-0.105);kneeCap.scale.set(0.94,0.90,0.42);kneePivot.add(kneeCap);
+    const kneeRing=new THREE.Mesh(new THREE.TorusGeometry(0.135,0.022,7,24),trim);
+    kneeRing.rotation.x=Math.PI/2;kneeRing.position.set(0,0,-0.12);kneePivot.add(kneeRing);
+
+    const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.145,0.46,18),suit);
+    shin.position.y=-0.23;kneePivot.add(shin);
+    const shinGuard=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.30,0.07),panel);
+    shinGuard.position.set(0,-0.23,-0.132);kneePivot.add(shinGuard);
+    const shinIndicator=new THREE.Mesh(new THREE.BoxGeometry(0.075,0.024,0.018),glow);
+    shinIndicator.position.set(0,-0.18,-0.17);kneePivot.add(shinIndicator);
+
+    const anklePivot=new THREE.Group();anklePivot.position.y=-0.46;kneePivot.add(anklePivot);
+    const ankleJoint=new THREE.Mesh(new THREE.SphereGeometry(0.105,14,12),hipJointMaterial);
+    ankleJoint.position.y=0.005;anklePivot.add(ankleJoint);
+    const ankleSeal=new THREE.Mesh(new THREE.TorusGeometry(0.115,0.025,7,20),bearingMaterial);
+    ankleSeal.rotation.x=Math.PI/2;ankleSeal.position.y=0.015;anklePivot.add(ankleSeal);
+    const boot=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.18,0.47),dark);
+    boot.position.set(0,-0.055,-0.055);anklePivot.add(boot);
+    const bootSole=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.055,0.49),rubber);
+    bootSole.position.set(0,-0.112,-0.055);anklePivot.add(bootSole);
+    const toeCap=new THREE.Mesh(new THREE.BoxGeometry(0.29,0.09,0.13),trim);
+    toeCap.position.set(0,-0.065,-0.245);anklePivot.add(toeCap);
+    const bootStripe=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.035,0.09),glow);
+    bootStripe.position.set(0,0.012,-0.23);anklePivot.add(bootStripe);
+
+    legPivots.push(hip);
+    kneePivots.push(kneePivot);
+    anklePivots.push(anklePivot);
   }
-  const armPivots=[];
+
+  const armPivots=[],elbowPivots=[],wristPivots=[];
   for(const side of [-1,1]){
-    const pivot=new THREE.Group();pivot.position.set(side*0.48,2.0,0);root.add(pivot);
-    const arm=new THREE.Mesh(new THREE.CylinderGeometry(0.13,0.16,0.78,14),suit);
-    arm.position.y=-0.36;pivot.add(arm);
-    const elbow=new THREE.Mesh(new THREE.SphereGeometry(0.16,12,10),orange);
-    elbow.position.y=-0.68;pivot.add(elbow);
-    const forearmGuard=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.30,0.075),panel);
-    forearmGuard.position.set(0,-0.48,-0.142);pivot.add(forearmGuard);
-    const wristSeal=new THREE.Mesh(new THREE.TorusGeometry(0.145,0.032,7,18),orange);
-    wristSeal.position.set(0,-0.72,0);wristSeal.rotation.x=Math.PI/2;pivot.add(wristSeal);
-    const glove=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),dark);
-    glove.position.set(0,-0.82,-0.03);glove.scale.set(0.85,1.0,0.9);pivot.add(glove);
-    const glovePlate=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.075,0.10),trim);
-    glovePlate.position.set(0,-0.82,-0.17);pivot.add(glovePlate);
-    armPivots.push(pivot);
+    const shoulder=new THREE.Group();shoulder.position.set(side*0.48,2.0,0);root.add(shoulder);
+    const shoulderBearing=new THREE.Mesh(new THREE.SphereGeometry(0.17,16,12),hipJointMaterial);
+    shoulderBearing.position.set(0,-0.02,0);shoulder.add(shoulderBearing);
+    const upperArm=new THREE.Mesh(new THREE.CylinderGeometry(0.145,0.125,0.42,16),suit);
+    upperArm.position.y=-0.21;shoulder.add(upperArm);
+    const upperShell=new THREE.Mesh(new THREE.SphereGeometry(0.145,16,12),suit);
+    upperShell.position.set(0,-0.20,-0.02);upperShell.scale.set(1,1.48,0.86);shoulder.add(upperShell);
+
+    const elbowPivot=new THREE.Group();elbowPivot.position.y=-0.42;shoulder.add(elbowPivot);
+    const elbowBearing=new THREE.Mesh(new THREE.SphereGeometry(0.125,16,12),bearingMaterial);
+    elbowPivot.add(elbowBearing);
+    const elbowCap=new THREE.Mesh(new THREE.SphereGeometry(0.12,14,12),orange);
+    elbowCap.position.set(0,0,-0.095);elbowCap.scale.set(0.92,0.90,0.40);elbowPivot.add(elbowCap);
+    const forearm=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.15,0.42,16),suit);
+    forearm.position.y=-0.21;elbowPivot.add(forearm);
+    const forearmGuard=new THREE.Mesh(new THREE.BoxGeometry(0.21,0.27,0.075),panel);
+    forearmGuard.position.set(0,-0.22,-0.13);elbowPivot.add(forearmGuard);
+
+    const wristPivot=new THREE.Group();wristPivot.position.y=-0.42;elbowPivot.add(wristPivot);
+    const wristBearing=new THREE.Mesh(new THREE.SphereGeometry(0.09,14,12),hipJointMaterial);
+    wristPivot.add(wristBearing);
+    const wristSeal=new THREE.Mesh(new THREE.TorusGeometry(0.12,0.025,7,20),orange);
+    wristSeal.rotation.x=Math.PI/2;wristSeal.position.y=-0.015;wristPivot.add(wristSeal);
+    const glove=new THREE.Mesh(new THREE.SphereGeometry(0.145,14,12),dark);
+    glove.position.set(0,-0.105,-0.025);glove.scale.set(0.88,1.0,0.92);wristPivot.add(glove);
+    const glovePlate=new THREE.Mesh(new THREE.BoxGeometry(0.145,0.065,0.095),trim);
+    glovePlate.position.set(0,-0.105,-0.145);wristPivot.add(glovePlate);
+
+    armPivots.push(shoulder);
+    elbowPivots.push(elbowPivot);
+    wristPivots.push(wristPivot);
   }
   const chestLight=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.12,0.035),glow);
   chestLight.position.set(0,1.77,-0.43);
@@ -893,7 +943,8 @@ function makeExplorer() {
   chestLight.position.set(0,0.055,-0.03);
   player.add(root);
   return {
-    root, legPivots, armPivots,
+    root, legPivots, kneePivots, anklePivots,
+    armPivots, elbowPivots, wristPivots, headPivot,
     torso, upper, helmet, visorMesh, backpack,
     antennaLight, chestLight, visorReflection, packTop
   };
@@ -1355,10 +1406,21 @@ function updatePlayer(dt) {
     difference = Math.atan2(Math.sin(difference), Math.cos(difference));
     explorer.root.rotation.y += difference * Math.min(1, dt * 6.8);
     walkPhase += dt * (2.2 + horizontalSpeed * 2.5);
-    explorer.legPivots[0].rotation.x = Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
-    explorer.legPivots[1].rotation.x = -Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
-    explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.34;
-    explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.34;
+    const gait=Math.sin(walkPhase);
+    const oppositeGait=Math.sin(walkPhase+Math.PI);
+    const stride=lowView?0.25:0.38;
+    for(let side=0;side<2;side++){
+      const legWave=side===0?gait:oppositeGait;
+      const armWave=-legWave;
+      explorer.legPivots[side].rotation.x=legWave*stride;
+      explorer.legPivots[side].rotation.z=(side===0?1:-1)*0.018;
+      explorer.kneePivots[side].rotation.x=Math.max(0,legWave)*0.62+0.045;
+      explorer.anklePivots[side].rotation.x=-legWave*0.22-Math.max(0,legWave)*0.12;
+      explorer.armPivots[side].rotation.x=armWave*0.28-0.04;
+      explorer.armPivots[side].rotation.z=(side===0?-1:1)*0.035;
+      explorer.elbowPivots[side].rotation.x=0.17+Math.max(0,armWave)*0.24;
+      explorer.wristPivots[side].rotation.x=-0.08+Math.sin(walkPhase*0.5+side)*0.045;
+    }
     splashTimer += dt;
     rippleTimer += dt;
     if (splashTimer > (horizontalSpeed > 2.3 ? 0.25 : 0.34)) {
@@ -1373,8 +1435,17 @@ function updatePlayer(dt) {
       splashTimer=0;
     }
   } else {
-    explorer.legPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 3.8));
-    explorer.armPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 3.8));
+    const settle=1-Math.exp(-dt*5.2);
+    for(let side=0;side<2;side++){
+      explorer.legPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.legPivots[side].rotation.x,0,settle);
+      explorer.legPivots[side].rotation.z=THREE.MathUtils.lerp(explorer.legPivots[side].rotation.z,0,settle);
+      explorer.kneePivots[side].rotation.x=THREE.MathUtils.lerp(explorer.kneePivots[side].rotation.x,0.035,settle);
+      explorer.anklePivots[side].rotation.x=THREE.MathUtils.lerp(explorer.anklePivots[side].rotation.x,0,settle);
+      explorer.armPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.armPivots[side].rotation.x,0,settle);
+      explorer.armPivots[side].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[side].rotation.z,0,settle);
+      explorer.elbowPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.elbowPivots[side].rotation.x,0.15,settle);
+      explorer.wristPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.wristPivots[side].rotation.x,0,settle);
+    }
     splashTimer = 0;
     rippleTimer = 0;
   }
@@ -1382,8 +1453,9 @@ function updatePlayer(dt) {
   const waveBob = THREE.MathUtils.clamp((surfaceY - WATER_LEVEL) * 0.18, -0.035, 0.035);
   const gaitBob = horizontalSpeed > 0.12 ? Math.abs(Math.sin(walkPhase * 2)) * 0.035 : 0;
   explorer.root.position.y = waveBob + gaitBob;
-  explorer.root.rotation.x += ((lowView ? -0.10 : 0) - explorer.root.rotation.x) * Math.min(1, dt * 2.5);
-  explorer.root.rotation.z += (THREE.MathUtils.clamp(-velocity.x * 0.025, -0.08, 0.08) - explorer.root.rotation.z) * Math.min(1, dt * 3.0);
+  const forwardLean=lowView?-0.10:THREE.MathUtils.clamp(-horizontalSpeed*0.035,-0.085,0);
+  explorer.root.rotation.x += (forwardLean-explorer.root.rotation.x)*Math.min(1,dt*2.5);
+  explorer.root.rotation.z += (THREE.MathUtils.clamp(-velocity.x*0.035,-0.10,0.10)-explorer.root.rotation.z)*Math.min(1,dt*3.0);
   return horizontalSpeed;
 }
 
@@ -1394,11 +1466,10 @@ function updateExplorerLife(dt,speed){
 
   explorer.torso.scale.y=1.0+breath*0.007;
   explorer.upper.scale.y=0.52*(1.0+breath*0.012);
-  explorer.helmet.position.y=2.72+breath*0.013+Math.sin(t*0.42)*0.005*idleAmount;
-  explorer.helmet.rotation.x=Math.sin(t*0.38+0.5)*0.012*idleAmount;
-  explorer.helmet.rotation.y=Math.sin(t*0.24)*0.026*idleAmount;
-  explorer.visorMesh.rotation.x=explorer.helmet.rotation.x*0.72;
-  explorer.visorMesh.rotation.y=explorer.helmet.rotation.y*0.82;
+  explorer.headPivot.position.y=2.42+breath*0.010+Math.sin(t*0.42)*0.006*idleAmount;
+  explorer.headPivot.rotation.x=Math.sin(t*0.38+0.5)*0.028*idleAmount;
+  explorer.headPivot.rotation.y=Math.sin(t*0.24)*0.052*idleAmount;
+  explorer.headPivot.rotation.z=Math.sin(t*0.31+0.7)*0.012*idleAmount;
   explorer.backpack.position.y=1.78+breath*0.008;
   explorer.packTop.position.y=2.26+breath*0.008;
 
@@ -1408,11 +1479,19 @@ function updateExplorerLife(dt,speed){
   explorer.chestLight.material.opacity=0.84+0.16*Math.sin(t*2.0);
   explorer.visorReflection.material.opacity=0.26+0.06*Math.sin(t*0.7);
 
-  if(idleAmount>0.02){
-    explorer.armPivots[0].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[0].rotation.z,Math.sin(t*0.83)*0.016*idleAmount,Math.min(1,dt*3.0));
-    explorer.armPivots[1].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[1].rotation.z,-Math.sin(t*0.83+0.5)*0.016*idleAmount,Math.min(1,dt*3.0));
-    explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,Math.sin(t*0.52)*0.006*idleAmount,Math.min(1,dt*2.2));
+  const idleSway=Math.sin(t*0.83)*0.026*idleAmount;
+  for(let side=0;side<2;side++){
+    explorer.armPivots[side].rotation.z=THREE.MathUtils.lerp(
+      explorer.armPivots[side].rotation.z,(side===0?idleSway:-idleSway*0.82),Math.min(1,dt*2.8)
+    );
+    explorer.elbowPivots[side].rotation.x=THREE.MathUtils.lerp(
+      explorer.elbowPivots[side].rotation.x,0.16+Math.sin(t*0.64+side*0.8)*0.035*idleAmount,Math.min(1,dt*2.4)
+    );
+    explorer.wristPivots[side].rotation.z=THREE.MathUtils.lerp(
+      explorer.wristPivots[side].rotation.z,Math.sin(t*0.55+side)*0.025*idleAmount,Math.min(1,dt*2.2)
+    );
   }
+  explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,Math.sin(t*0.52)*0.006*idleAmount,Math.min(1,dt*2.2));
 }
 
 const cameraTarget=new THREE.Vector3();
