@@ -81,11 +81,14 @@ function tideCycleAt(time) {
 }
 
 function waveHeight(x, z, time) {
+  // Six travelling wave bands: long ocean swell plus shorter, faster surface chop.
   const base =
-    0.42 * Math.sin(x * 0.019 + z * 0.009 - time * 0.60) +
-    0.23 * Math.sin(-x * 0.013 + z * 0.028 + time * 0.48 + 1.4) +
-    0.085 * Math.sin(x * 0.071 - z * 0.041 - time * 1.13) +
-    0.032 * Math.sin(-x * 0.14 - z * 0.10 + time * 1.75);
+    0.72 * Math.sin(x * 0.010 + z * 0.004 - time * 0.72) +
+    0.44 * Math.sin(-x * 0.006 + z * 0.014 + time * 0.82 + 1.4) +
+    0.24 * Math.sin(x * 0.026 - z * 0.019 - time * 1.48) +
+    0.11 * Math.sin(-x * 0.052 - z * 0.038 + time * 2.35) +
+    0.055 * Math.sin(x * 0.12 + z * 0.075 - time * 3.0) +
+    0.022 * Math.sin(-x * 0.23 + z * 0.16 + time * 4.4);
   const front = z - tideFrontZ;
   const lateral = Math.exp(-Math.pow((x - tideCenterX) / 520, 4));
   const crest = Math.exp(-Math.pow(front / 130, 2));
@@ -143,7 +146,7 @@ function createSkyDome() {
 const skyDome = createSkyDome();
 
 function createOcean() {
-  const segments = MOBILE ? 230 : 360;
+  const segments = MOBILE ? 300 : 440;
   const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, segments, segments);
   geometry.rotateX(-Math.PI / 2);
 
@@ -156,10 +159,12 @@ function createOcean() {
     "varying vec2 vWorldXZ;",
     "varying float vHeight;",
     "float waveHeight(vec2 p,float t){",
-    "float h=0.42*sin(p.x*0.019+p.y*0.009-t*0.60);",
-    "h+=0.23*sin(-p.x*0.013+p.y*0.028+t*0.48+1.4);",
-    "h+=0.085*sin(p.x*0.071-p.y*0.041-t*1.13);",
-    "h+=0.032*sin(-p.x*0.14-p.y*0.10+t*1.75);",
+    "float h=0.72*sin(p.x*0.010+p.y*0.004-t*0.72);",
+    "h+=0.44*sin(-p.x*0.006+p.y*0.014+t*0.82+1.4);",
+    "h+=0.24*sin(p.x*0.026-p.y*0.019-t*1.48);",
+    "h+=0.11*sin(-p.x*0.052-p.y*0.038+t*2.35);",
+    "h+=0.055*sin(p.x*0.12+p.y*0.075-t*3.0);",
+    "h+=0.022*sin(-p.x*0.23+p.y*0.16+t*4.4);",
     "float front=p.y-uTideZ;",
     "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
     "float crest=exp(-pow(front/130.0,2.0));",
@@ -170,21 +175,25 @@ function createOcean() {
     "void main(){",
     "vec3 p=position;",
     "vec2 worldXZ=vec2(p.x+uOrigin.x,p.z+uOrigin.y);",
-    "float phase1=worldXZ.x*0.019+worldXZ.y*0.009-uTime*0.60;",
-    "float phase2=-worldXZ.x*0.013+worldXZ.y*0.028+uTime*0.48+1.4;",
-    "float phase3=worldXZ.x*0.071-worldXZ.y*0.041-uTime*1.13;",
-    "float phase4=-worldXZ.x*0.14-worldXZ.y*0.10+uTime*1.75;",
-    "vec2 d1=normalize(vec2(0.019,0.009));",
-    "vec2 d2=normalize(vec2(-0.013,0.028));",
-    "vec2 d3=normalize(vec2(0.071,-0.041));",
-    "vec2 d4=normalize(vec2(-0.14,-0.10));",
-    "p.x+=0.42*0.62*d1.x*cos(phase1)+0.23*0.52*d2.x*cos(phase2)+0.085*0.38*d3.x*cos(phase3)+0.032*0.28*d4.x*cos(phase4);",
-    "p.z+=0.42*0.62*d1.y*cos(phase1)+0.23*0.52*d2.y*cos(phase2)+0.085*0.38*d3.y*cos(phase3)+0.032*0.28*d4.y*cos(phase4);",
+    "float phase1=worldXZ.x*0.010+worldXZ.y*0.004-uTime*0.72;",
+    "float phase2=-worldXZ.x*0.006+worldXZ.y*0.014+uTime*0.82+1.4;",
+    "float phase3=worldXZ.x*0.026-worldXZ.y*0.019-uTime*1.48;",
+    "float phase4=-worldXZ.x*0.052-worldXZ.y*0.038+uTime*2.35;",
+    "float phase5=worldXZ.x*0.12+worldXZ.y*0.075-uTime*3.0;",
+    "float phase6=-worldXZ.x*0.23+worldXZ.y*0.16+uTime*4.4;",
+    "vec2 d1=normalize(vec2(0.010,0.004));",
+    "vec2 d2=normalize(vec2(-0.006,0.014));",
+    "vec2 d3=normalize(vec2(0.026,-0.019));",
+    "vec2 d4=normalize(vec2(-0.052,-0.038));",
+    "vec2 d5=normalize(vec2(0.12,0.075));",
+    "vec2 d6=normalize(vec2(-0.23,0.16));",
+    "p.x+=0.50*d1.x*cos(phase1)+0.29*d2.x*cos(phase2)+0.11*d3.x*cos(phase3)+0.035*d4.x*cos(phase4)+0.012*d5.x*cos(phase5);",
+    "p.z+=0.50*d1.y*cos(phase1)+0.29*d2.y*cos(phase2)+0.11*d3.y*cos(phase3)+0.035*d4.y*cos(phase4)+0.012*d5.y*cos(phase5);",
     "float h=waveHeight(worldXZ,uTime);",
     "p.y=h;",
     "vec4 world=modelMatrix*vec4(p,1.0);",
     "vWorldPos=world.xyz;",
-    "vWorldXZ=worldXZ;",
+    "vWorldXZ=worldXZ+vec2(p.x-position.x,p.z-position.z);",
     "vHeight=h;",
     "gl_Position=projectionMatrix*viewMatrix*world;",
     "}"
@@ -199,10 +208,14 @@ function createOcean() {
     "varying vec2 vWorldXZ;",
     "varying float vHeight;",
     "float waveHeight(vec2 p,float t){",
-    "float h=0.42*sin(p.x*0.019+p.y*0.009-t*0.60);",
-    "h+=0.23*sin(-p.x*0.013+p.y*0.028+t*0.48+1.4);",
-    "h+=0.085*sin(p.x*0.071-p.y*0.041-t*1.13);",
-    "h+=0.032*sin(-p.x*0.14-p.y*0.10+t*1.75);",
+    "float h=0.72*sin(p.x*0.010+p.y*0.004-t*0.72);",
+    "h+=0.44*sin(-p.x*0.006+p.y*0.014+t*0.82+1.4);",
+    "h+=0.24*sin(p.x*0.026-p.y*0.019-t*1.48);",
+    "h+=0.11*sin(-p.x*0.052-p.y*0.038+t*2.35);",
+    "h+=0.055*sin(p.x*0.12+p.y*0.075-t*3.0);",
+    "h+=0.022*sin(-p.x*0.23+p.y*0.16+t*4.4);",
+    "h+=0.025*sin(p.x*0.34+p.y*0.27-t*4.7);",
+    "h+=0.014*sin(-p.x*0.61+p.y*0.49+t*6.2);",
     "float front=p.y-uTideZ;",
     "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
     "float crest=exp(-pow(front/130.0,2.0));",
@@ -225,20 +238,25 @@ function createOcean() {
     "float hz=waveHeight(p+vec2(0.0,0.65),uTime)-waveHeight(p-vec2(0.0,0.65),uTime);",
     "vec3 n=normalize(vec3(-hx/1.3,1.0,-hz/1.3));",
     "vec3 viewDir=normalize(cameraPosition-vWorldPos);",
-    "float fresnel=0.02+0.98*pow(1.0-max(dot(n,viewDir),0.0),5.0);",
+    "float fresnel=0.025+0.975*pow(1.0-max(dot(n,viewDir),0.0),5.0);",
     "vec3 reflected=skyColor(reflect(-viewDir,n));",
     "float diffuse=max(dot(n,normalize(uSunDir)),0.0);",
-    "vec3 deep=vec3(0.006,0.055,0.078);",
-    "vec3 shallow=vec3(0.018,0.19,0.23);",
-    "vec3 water=mix(deep,shallow,0.20+diffuse*0.38);",
-    "water=mix(water,reflected,0.16+fresnel*0.80);",
-    "float spec=pow(max(dot(reflect(-normalize(uSunDir),n),viewDir),0.0),190.0);",
-    "float sunGlint=pow(max(dot(reflect(-normalize(uSunDir),n),viewDir),0.0),26.0);",
-    "water+=vec3(1.0,0.78,0.53)*(spec*1.25+sunGlint*0.08);",
-    "float micro=noise(p*0.09+uTime*0.035);",
-    "float crest=smoothstep(0.43,0.67,vHeight)*smoothstep(0.34,0.78,micro);",
-    "float streak=pow(max(sin(p.x*0.31+p.y*0.18+uTime*0.6)*0.5+0.5,0.0),18.0);",
-    "water=mix(water,vec3(0.67,0.84,0.85),crest*0.43+streak*0.025);",
+    "vec3 deep=vec3(0.004,0.038,0.064);",
+    "vec3 shallow=vec3(0.012,0.17,0.22);",
+    "vec3 water=mix(deep,shallow,0.22+diffuse*0.42);",
+    "water=mix(water,reflected,0.24+fresnel*0.88);",
+    "float reflectedSun=max(dot(reflect(-normalize(uSunDir),n),viewDir),0.0);",
+    "float spec=pow(reflectedSun,105.0);",
+    "float sunGlint=pow(reflectedSun,25.0);",
+    "float glintNoise=0.62+noise(p*0.13+vec2(uTime*0.07,-uTime*0.05))*0.92;",
+    "water+=vec3(1.0,0.84,0.62)*(spec*2.1+sunGlint*0.13)*glintNoise;",
+    "float micro=noise(p*0.09+vec2(uTime*0.04,-uTime*0.03));",
+    "float crestNoise=noise(p*0.043+vec2(uTime*0.045,-uTime*0.032));",
+    "float crest=smoothstep(0.58,1.02,vHeight)*smoothstep(0.38,0.70,crestNoise);",
+    "float flecks=smoothstep(0.78,0.94,noise(p*0.17+vec2(-uTime*0.09,uTime*0.06)))*smoothstep(0.42,0.92,vHeight);",
+    "float streak=pow(max(sin(p.x*0.31+p.y*0.18+uTime*0.9)*0.5+0.5,0.0),15.0);",
+    "water=mix(water,vec3(0.76,0.91,0.91),clamp(crest*0.68+flecks*0.24+streak*0.035,0.0,0.82));",
+    "water*=0.985+micro*0.03;",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
     "float fog=1.0-exp(-pow(distanceToCamera*0.00072,2.0));",
     "vec3 horizon=vec3(0.43,0.56,0.58);",
@@ -628,6 +646,12 @@ function updateCamera(dt) {
   }
   camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? 12 : 4.5)));
   camera.lookAt(cameraTarget);
+  // Let the horizon gently respond to the passing swell instead of feeling locked in place.
+  const leftHeight=waveHeight(player.position.x-2,player.position.z,simulationTime);
+  const rightHeight=waveHeight(player.position.x+2,player.position.z,simulationTime);
+  const seaSlope=(rightHeight-leftHeight)*0.25;
+  const roll=THREE.MathUtils.clamp(-seaSlope*0.18,-0.035,0.035);
+  camera.rotation.z=THREE.MathUtils.lerp(camera.rotation.z,roll,Math.min(1,dt*2.4));
 }
 
 function updateScene(dt, speed) {
