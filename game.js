@@ -391,10 +391,11 @@ function makeExplorer() {
     armPivots.push(pivot);
   }
   const chestLight=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.12,0.035),glow);
-  chestLight.position.set(0,1.77,-0.43);root.add(chestLight);
+  chestLight.position.set(0,1.77,-0.43);
   const chestPanel=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.36,0.045),dark);
   chestPanel.position.set(0,1.72,-0.44);root.add(chestPanel);
   chestPanel.add(chestLight);
+  chestLight.position.set(0,0.055,-0.03);
   player.add(root);
   return { root, legPivots, armPivots };
 }
