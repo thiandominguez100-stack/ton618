@@ -669,7 +669,7 @@ function updatePlayer(dt) {
 
   // Boots remain in contact with the seabed; only the suit's centre of mass bobs.
   player.position.y = GROUND_Y + 0.06;
-  const lowView = !!(keys.ControlLeft || keys.ControlRight);
+  const lowView = firstPerson && !!(keys.ControlLeft || keys.ControlRight);
   if (spaceStrokeRequested) {
     velocity.x += forward.x * 0.9;
     velocity.z += forward.z * 0.9;
@@ -793,7 +793,7 @@ function updateScene(dt, speed) {
     waveValue.textContent = depthAboveSeabed.toFixed(2) + " m";
     tideValue.textContent = tide.approaching ? "ACERCÁNDOSE" : "RETIRÁNDOSE";
     tideDistanceValue.textContent = Math.round(tide.distance) + " m";
-    stateValue.textContent = (keys.ControlLeft || keys.ControlRight) ? "VISTA SUBMARINA" : "AGUA A LAS RODILLAS";
+    stateValue.textContent = (firstPerson && (keys.ControlLeft || keys.ControlRight)) ? "VISTA SUBMARINA" : "AGUA A LAS RODILLAS";
     const minutes = Math.floor(simulationTime / 60).toString().padStart(2, "0");
     const seconds = Math.floor(simulationTime % 60).toString().padStart(2, "0");
     clockLabel.textContent = "T+ " + minutes + ":" + seconds;
