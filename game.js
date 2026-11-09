@@ -9,6 +9,9 @@ const recenterButton = document.getElementById("recenterButton");
 const speedValue = document.getElementById("speedValue");
 const waveValue = document.getElementById("waveValue");
 const tideValue = document.getElementById("tideValue");
+const tideDistanceValue = document.getElementById("tideDistanceValue");
+const stateValue = document.getElementById("stateValue");
+const underwaterOverlay = document.getElementById("underwaterOverlay");
 const clockLabel = document.getElementById("clockLabel");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
@@ -53,21 +56,41 @@ let lastPointer = { x: 0, y: 0 };
 let cameraYaw = 0.12;
 let cameraPitch = 0.19;
 const cameraDistance = 13.5;
+let firstPerson = false;
 const keys = Object.create(null);
 const velocity = new THREE.Vector3();
 let verticalVelocity = 0;
+let spaceStrokeRequested = false;
 let walkPhase = 0;
 let splashTimer = 0;
 let rippleTimer = 0;
+let tideSprayTimer = 0;
 let telemetryTimer = 0;
+let tideFrontZ = -720;
+let tideCenterX = 0;
+let tideAmplitude = 1;
+
+function tideCycleAt(time) {
+  const period = 148;
+  const phase = (time % period) / period;
+  const approaching = phase < 0.70;
+  const progress = approaching ? phase / 0.70 : (phase - 0.70) / 0.30;
+  const eased = progress * progress * (3 - 2 * progress);
+  const distance = approaching ? 720 - 615 * eased : 105 + 615 * eased;
+  return { distance, approaching, phase };
+}
 
 function waveHeight(x, z, time) {
-  return (
+  const base =
     0.42 * Math.sin(x * 0.019 + z * 0.009 - time * 0.60) +
     0.23 * Math.sin(-x * 0.013 + z * 0.028 + time * 0.48 + 1.4) +
     0.085 * Math.sin(x * 0.071 - z * 0.041 - time * 1.13) +
-    0.032 * Math.sin(-x * 0.14 - z * 0.10 + time * 1.75)
-  );
+    0.032 * Math.sin(-x * 0.14 - z * 0.10 + time * 1.75);
+  const front = z - tideFrontZ;
+  const lateral = Math.exp(-Math.pow((x - tideCenterX) / 520, 4));
+  const crest = Math.exp(-Math.pow(front / 130, 2));
+  const shoulder = Math.exp(-Math.pow((front + 210) / 250, 2));
+  return base + tideAmplitude * lateral * (5.4 * crest + 1.25 * shoulder * Math.sin(front * 0.018 - time * 0.8));
 }
 
 function createSkyDome() {
@@ -127,6 +150,8 @@ function createOcean() {
   const vertexShader = [
     "uniform float uTime;",
     "uniform vec2 uOrigin;",
+    "uniform float uTideZ;",
+    "uniform float uTideX;",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
     "varying float vHeight;",
@@ -135,6 +160,11 @@ function createOcean() {
     "h+=0.23*sin(-p.x*0.013+p.y*0.028+t*0.48+1.4);",
     "h+=0.085*sin(p.x*0.071-p.y*0.041-t*1.13);",
     "h+=0.032*sin(-p.x*0.14-p.y*0.10+t*1.75);",
+    "float front=p.y-uTideZ;",
+    "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
+    "float crest=exp(-pow(front/130.0,2.0));",
+    "float shoulder=exp(-pow((front+210.0)/250.0,2.0));",
+    "h+=lateral*(5.4*crest+1.25*shoulder*sin(front*0.018-t*0.8));",
     "return h;",
     "}",
     "void main(){",
@@ -163,6 +193,8 @@ function createOcean() {
   const fragmentShader = [
     "uniform float uTime;",
     "uniform vec3 uSunDir;",
+    "uniform float uTideZ;",
+    "uniform float uTideX;",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
     "varying float vHeight;",
@@ -171,6 +203,11 @@ function createOcean() {
     "h+=0.23*sin(-p.x*0.013+p.y*0.028+t*0.48+1.4);",
     "h+=0.085*sin(p.x*0.071-p.y*0.041-t*1.13);",
     "h+=0.032*sin(-p.x*0.14-p.y*0.10+t*1.75);",
+    "float front=p.y-uTideZ;",
+    "float lateral=exp(-pow((p.x-uTideX)/520.0,4.0));",
+    "float crest=exp(-pow(front/130.0,2.0));",
+    "float shoulder=exp(-pow((front+210.0)/250.0,2.0));",
+    "h+=lateral*(5.4*crest+1.25*shoulder*sin(front*0.018-t*0.8));",
     "return h;",
     "}",
     "float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
@@ -216,6 +253,8 @@ function createOcean() {
     uniforms: {
       uTime: { value: 0 },
       uOrigin: { value: new THREE.Vector2(0, 0) },
+      uTideZ: { value: -720 },
+      uTideX: { value: 0 },
       uSunDir: { value: SUN_DIR.clone() }
     },
     vertexShader,
@@ -428,7 +467,7 @@ function createParticleSystem(count) {
   scene.add(points);
   return { count, positions, velocities, life, geometry, points, cursor:0 };
 }
-const spray=createParticleSystem(180);
+const spray=createParticleSystem(MOBILE ? 130 : 280);
 function spawnSpray(x,z,amount=9) {
   const y=waveHeight(x,z,simulationTime)+0.05;
   for(let j=0;j<amount;j++){
@@ -482,71 +521,173 @@ function updateRipples(dt) {
   }
 }
 
-const playerState={groundY:GROUND_Y,jump:0};
 function updatePlayer(dt) {
-  const forwardInput=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);
-  const sideInput=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
-  const forward=new THREE.Vector3(-Math.sin(cameraYaw),0,-Math.cos(cameraYaw));
-  const right=new THREE.Vector3(Math.cos(cameraYaw),0,-Math.sin(cameraYaw));
-  const wish=forward.multiplyScalar(forwardInput).add(right.multiplyScalar(sideInput));
-  if(wish.lengthSq()>1)wish.normalize();
-  const maxSpeed=keys.ShiftLeft||keys.ShiftRight?7.8:5.2;
-  const target=wish.multiplyScalar(maxSpeed);
-  const response=wish.lengthSq()>0?3.6:2.1;
-  velocity.x+=(target.x-velocity.x)*Math.min(1,response*dt);
-  velocity.z+=(target.z-velocity.z)*Math.min(1,response*dt);
-  const horizontalSpeed=Math.hypot(velocity.x,velocity.z);
-  if(horizontalSpeed<0.025&&wish.lengthSq()===0){velocity.x=0;velocity.z=0;}
+  const forwardInput = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const sideInput = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  const forward = new THREE.Vector3(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw));
+  const right = new THREE.Vector3(Math.cos(cameraYaw), 0, -Math.sin(cameraYaw));
+  const wish = forward.multiplyScalar(forwardInput).add(right.multiplyScalar(sideInput));
+  if (wish.lengthSq() > 1) wish.normalize();
 
-  if(keys.Space&&Math.abs(player.position.y-playerState.groundY)<0.06){
-    verticalVelocity=4.4;
-    keys.Space=false;
-    spawnSpray(player.position.x,player.position.z,22);
+  const tide = tideCycleAt(simulationTime);
+  const pressure = 1 - THREE.MathUtils.smoothstep(tide.distance, 92, 340);
+  const currentX = Math.sin(player.position.z * 0.008 + simulationTime * 0.19) * 0.34;
+  const currentZ = Math.cos(player.position.x * 0.006 - simulationTime * 0.16) * 0.26;
+  const tideFlow = tide.approaching ? pressure * 3.3 : -pressure * 0.65;
+  const maxSpeed = (keys.ShiftLeft || keys.ShiftRight) ? 7.8 : 5.2;
+  const targetX = wish.x * maxSpeed + currentX;
+  const targetZ = wish.z * maxSpeed + currentZ + tideFlow;
+  const response = wish.lengthSq() > 0 ? 3.7 : 1.35;
+  velocity.x += (targetX - velocity.x) * Math.min(1, response * dt);
+  velocity.z += (targetZ - velocity.z) * Math.min(1, response * dt);
+
+  const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
+  if (horizontalSpeed > 11.5) {
+    velocity.multiplyScalar(11.5 / horizontalSpeed);
   }
-  verticalVelocity-=10.8*dt;
-  player.position.y+=verticalVelocity*dt;
-  if(player.position.y<playerState.groundY){player.position.y=playerState.groundY;verticalVelocity=0;}
+  player.position.x += velocity.x * dt;
+  player.position.z += velocity.z * dt;
 
-  player.position.x+=velocity.x*dt;
-  player.position.z+=velocity.z*dt;
-
-  if(horizontalSpeed>0.16){
-    const desiredYaw=Math.atan2(-velocity.x,-velocity.z);
-    let difference=desiredYaw-explorer.root.rotation.y;
-    difference=Math.atan2(Math.sin(difference),Math.cos(difference));
-    explorer.root.rotation.y+=difference*Math.min(1,dt*7.5);
-    walkPhase+=dt*(2.3+horizontalSpeed*1.8);
-    explorer.legPivots[0].rotation.x=Math.sin(walkPhase)*0.48;
-    explorer.legPivots[1].rotation.x=-Math.sin(walkPhase)*0.48;
-    explorer.armPivots[0].rotation.x=-Math.sin(walkPhase)*0.30;
-    explorer.armPivots[1].rotation.x=Math.sin(walkPhase)*0.30;
-    explorer.root.position.y=Math.sin(walkPhase*2)*0.045;
-    splashTimer+=dt;
-    rippleTimer+=dt;
-    if(splashTimer>0.17){spawnSpray(player.position.x,player.position.z,5);splashTimer=0;}
-    if(rippleTimer>0.42){spawnRipple();rippleTimer=0;}
-  }else{
-    explorer.legPivots.forEach(p=>p.rotation.x*=Math.max(0,1-dt*4));
-    explorer.armPivots.forEach(p=>p.rotation.x*=Math.max(0,1-dt*4));
-    explorer.root.position.y=Math.sin(simulationTime*1.15)*0.018;
-    splashTimer=0;rippleTimer=0;
+  const diving = !!(keys.ControlLeft || keys.ControlRight);
+  const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
+  const targetY = surfaceY - 1.16 - (diving ? 1.28 : 0);
+  const buoyancyAcceleration = (targetY - player.position.y) * 9.4 - verticalVelocity * 4.25;
+  verticalVelocity += buoyancyAcceleration * dt;
+  if (spaceStrokeRequested) {
+    verticalVelocity += diving ? 3.25 : 2.05;
+    spaceStrokeRequested = false;
+    spawnSpray(player.position.x, player.position.z, 16);
   }
+  verticalVelocity = THREE.MathUtils.clamp(verticalVelocity, -4.8, 5.8);
+  player.position.y += verticalVelocity * dt;
+
+  if (horizontalSpeed > 0.16 || diving) {
+    if (horizontalSpeed > 0.16) {
+      const desiredYaw = Math.atan2(-velocity.x, -velocity.z);
+      let difference = desiredYaw - explorer.root.rotation.y;
+      difference = Math.atan2(Math.sin(difference), Math.cos(difference));
+      explorer.root.rotation.y += difference * Math.min(1, dt * 7.5);
+      walkPhase += dt * (2.3 + horizontalSpeed * 1.8);
+    } else {
+      walkPhase += dt * 2.1;
+    }
+    if (diving) {
+      explorer.legPivots[0].rotation.x = Math.sin(walkPhase * 0.82) * 0.35;
+      explorer.legPivots[1].rotation.x = -Math.sin(walkPhase * 0.82) * 0.35;
+      explorer.armPivots[0].rotation.x = -0.28 + Math.sin(walkPhase) * 0.55;
+      explorer.armPivots[1].rotation.x = -0.28 - Math.sin(walkPhase) * 0.55;
+    } else {
+      explorer.legPivots[0].rotation.x = Math.sin(walkPhase) * 0.48;
+      explorer.legPivots[1].rotation.x = -Math.sin(walkPhase) * 0.48;
+      explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.30;
+      explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.30;
+    }
+    explorer.root.position.y = Math.sin(walkPhase * 2) * (diving ? 0.065 : 0.045);
+    splashTimer += dt;
+    rippleTimer += dt;
+    if (horizontalSpeed > 0.16 && splashTimer > 0.17) {
+      spawnSpray(player.position.x, player.position.z, diving ? 7 : 5);
+      splashTimer = 0;
+    }
+    if (rippleTimer > (diving ? 0.62 : 0.42)) {
+      spawnRipple();
+      rippleTimer = 0;
+    }
+  } else {
+    explorer.legPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 4));
+    explorer.armPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 4));
+    explorer.root.position.y = Math.sin(simulationTime * 1.15) * 0.018;
+    splashTimer = 0;
+    rippleTimer = 0;
+  }
+  explorer.root.rotation.x += ((diving ? -0.13 : 0) - explorer.root.rotation.x) * Math.min(1, dt * 3.0);
   return horizontalSpeed;
 }
 
 const cameraTarget=new THREE.Vector3();
 const cameraDesired=new THREE.Vector3();
 function updateCamera(dt) {
-  const targetY=player.position.y+1.6;
-  const horizontal=cameraDistance*Math.cos(cameraPitch);
-  cameraDesired.set(
-    player.position.x+Math.sin(cameraYaw)*horizontal,
-    targetY+Math.sin(cameraPitch)*cameraDistance,
-    player.position.z+Math.cos(cameraYaw)*horizontal
-  );
-  camera.position.lerp(cameraDesired,Math.min(1,dt*4.5));
-  cameraTarget.set(player.position.x,targetY,player.position.z);
+  if (firstPerson) {
+    const eyeY = player.position.y + 1.42;
+    cameraDesired.set(player.position.x, eyeY, player.position.z);
+    const lookDistance = 55;
+    cameraTarget.set(
+      player.position.x - Math.sin(cameraYaw) * Math.cos(cameraPitch) * lookDistance,
+      eyeY + Math.sin(cameraPitch) * lookDistance,
+      player.position.z - Math.cos(cameraYaw) * Math.cos(cameraPitch) * lookDistance
+    );
+  } else {
+    const targetY = player.position.y + 1.6;
+    const horizontal = cameraDistance * Math.cos(cameraPitch);
+    cameraDesired.set(
+      player.position.x + Math.sin(cameraYaw) * horizontal,
+      targetY + Math.sin(cameraPitch) * cameraDistance,
+      player.position.z + Math.cos(cameraYaw) * horizontal
+    );
+    cameraTarget.set(player.position.x, targetY, player.position.z);
+  }
+  camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? 12 : 4.5)));
   camera.lookAt(cameraTarget);
+}
+
+function updateScene(dt, speed) {
+  const tide = tideCycleAt(simulationTime);
+  tideFrontZ = player.position.z - tide.distance;
+  tideCenterX = player.position.x;
+  tideAmplitude = 1;
+
+  ocean.position.set(player.position.x, 0, player.position.z);
+  ocean.material.uniforms.uOrigin.value.set(player.position.x, player.position.z);
+  ocean.material.uniforms.uTideZ.value = tideFrontZ;
+  ocean.material.uniforms.uTideX.value = tideCenterX;
+  ocean.material.uniforms.uTime.value = simulationTime;
+  skyDome.position.copy(camera.position);
+  skyDome.material.uniforms.uTime.value = simulationTime;
+
+  mainTide.wall.position.set(player.position.x, -3.2, tideFrontZ);
+  mainTide.material.uniforms.uTime.value = simulationTime;
+  farTide.wall.position.set(
+    player.position.x,
+    -3.2,
+    tideFrontZ - 780 + Math.sin(simulationTime * 0.026) * 75
+  );
+  farTide.material.uniforms.uTime.value = simulationTime * 0.72;
+
+  gargantua.group.position.set(player.position.x - 355, 170, player.position.z - 1650);
+  gargantua.ring1.rotation.z = Math.sin(simulationTime * 0.012) * 0.025;
+  gargantua.ring2.rotation.z = -Math.sin(simulationTime * 0.012) * 0.025;
+
+  const sprayWindow = tide.approaching && tide.distance < 490;
+  if (sprayWindow) {
+    tideSprayTimer += dt;
+    if (tideSprayTimer > 0.16) {
+      const x = player.position.x + (Math.random() - 0.5) * 760;
+      spawnSpray(x, tideFrontZ, MOBILE ? 3 : 5);
+      tideSprayTimer = 0;
+    }
+  } else {
+    tideSprayTimer = 0;
+  }
+
+  updateSpray(dt);
+  updateRipples(dt);
+  const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
+  const underwater = firstPerson && camera.position.y < surfaceY;
+  underwaterOverlay.style.opacity = underwater ? "1" : "0";
+  document.body.classList.toggle("tide-near", tide.distance < 260);
+
+  telemetryTimer += dt;
+  if (telemetryTimer > 0.12) {
+    speedValue.textContent = speed.toFixed(1) + " m/s";
+    waveValue.textContent = (surfaceY >= 0 ? "+" : "") + surfaceY.toFixed(2) + " m";
+    tideValue.textContent = tide.approaching ? "ACERCÁNDOSE" : "RETIRÁNDOSE";
+    tideDistanceValue.textContent = Math.round(tide.distance) + " m";
+    stateValue.textContent = (keys.ControlLeft || keys.ControlRight) ? "SUMERGIDO" : "VADEANDO";
+    const minutes = Math.floor(simulationTime / 60).toString().padStart(2, "0");
+    const seconds = Math.floor(simulationTime % 60).toString().padStart(2, "0");
+    clockLabel.textContent = "T+ " + minutes + ":" + seconds;
+    telemetryTimer = 0;
+  }
 }
 
 let tideWallTime=0;
@@ -614,10 +755,20 @@ window.addEventListener("keydown",event=>{
     else if(started&&paused)resumeGame();
     return;
   }
-  if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.code))event.preventDefault();
-  keys[event.code]=true;
+  if (event.code === "KeyV" && !event.repeat && started && !paused) {
+    firstPerson = !firstPerson;
+    explorer.root.visible = !firstPerson;
+    return;
+  }
+  if (event.code === "Space" && !keys.Space) {
+    spaceStrokeRequested = true;
+  }
+  if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.code)) event.preventDefault();
+  keys[event.code] = true;
 });
-window.addEventListener("keyup",event=>{keys[event.code]=false;});
+window.addEventListener("keyup", event => {
+  keys[event.code] = false;
+});
 window.addEventListener("blur",()=>{for(const k of Object.keys(keys))keys[k]=false;});
 renderer.domElement.addEventListener("click",()=>{
   if(started&&!paused&&!pointerLocked&&renderer.domElement.requestPointerLock){
@@ -636,7 +787,7 @@ renderer.domElement.addEventListener("pointermove",event=>{
   else if(dragging){dx=event.clientX-lastPointer.x;dy=event.clientY-lastPointer.y;lastPointer.x=event.clientX;lastPointer.y=event.clientY;}
   else return;
   cameraYaw-=dx*0.0028;
-  cameraPitch=THREE.MathUtils.clamp(cameraPitch-dy*0.0018,-0.02,0.55);
+  cameraPitch=THREE.MathUtils.clamp(cameraPitch-dy*0.0018,-0.48,0.58);
 });
 renderer.domElement.addEventListener("pointerup",()=>{dragging=false;});
 renderer.domElement.addEventListener("pointercancel",()=>{dragging=false;});
@@ -655,7 +806,6 @@ function resize() {
 }
 window.addEventListener("resize",resize);
 
-const initialWave=waveHeight(0,0,0);
 let firstRender=true;
 function animate() {
   requestAnimationFrame(animate);
