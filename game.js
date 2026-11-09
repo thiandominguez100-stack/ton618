@@ -52,6 +52,8 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.12;
 mount.appendChild(renderer.domElement);
+renderer.domElement.tabIndex=0;
+renderer.domElement.setAttribute("aria-label","MILLER · controles del explorador");
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x8baeb8);
@@ -810,6 +812,23 @@ function makeExplorer() {
   const visorReflection=addHeadPart(new THREE.SphereGeometry(0.12,16,12),visorGlint,[-0.12,2.83,-0.292]);
   visorReflection.scale.set(0.85,0.22,0.10);
   visorReflection.rotation.z=-0.28;
+  const visorDropletMaterial=new THREE.MeshPhysicalMaterial({
+    color:0xcaf2f7,metalness:0.03,roughness:0.055,transparent:true,
+    opacity:0.82,clearcoat:1,clearcoatRoughness:0.025
+  });
+  const visorDropletGeometry=new THREE.SphereGeometry(0.013,10,8);
+  const visorDroplets=[];
+  for(const [x,y,z,scale,phase] of [
+    [-0.19,2.84,-0.286,0.82,0.2],
+    [-0.055,2.91,-0.305,1.12,1.4],
+    [0.105,2.79,-0.302,0.72,2.1],
+    [0.19,2.88,-0.27,0.92,3.3],
+    [-0.12,2.68,-0.302,0.68,4.2]
+  ]){
+    const droplet=addHeadPart(visorDropletGeometry,visorDropletMaterial,[x,y,z]);
+    droplet.scale.set(0.72*scale,1.18*scale,0.50*scale);
+    visorDroplets.push({mesh:droplet,baseY:y-2.42,baseScaleY:1.18*scale,phase});
+  }
   const visorStatus=addHeadPart(new THREE.SphereGeometry(0.035,10,8),glow,[0.27,2.58,-0.285]);
 
   const chestSeal=addPart(new THREE.CylinderGeometry(0.37,0.39,0.13,24),rubber,[0,2.34,0]);
@@ -931,6 +950,10 @@ function makeExplorer() {
     upperArm.position.y=-0.21;shoulder.add(upperArm);
     const upperShell=new THREE.Mesh(new THREE.SphereGeometry(0.145,16,12),suit);
     upperShell.position.set(0,-0.20,-0.02);upperShell.scale.set(1,1.48,0.86);shoulder.add(upperShell);
+    const armSeam=new THREE.Mesh(new THREE.TorusGeometry(0.132,0.009,6,28),trim);
+    armSeam.rotation.x=Math.PI/2;
+    armSeam.position.set(0,-0.345,-0.005);
+    shoulder.add(armSeam);
 
     const elbowPivot=new THREE.Group();elbowPivot.position.y=-0.42;shoulder.add(elbowPivot);
     const elbowBearing=new THREE.Mesh(new THREE.SphereGeometry(0.125,16,12),bearingMaterial);
@@ -1104,7 +1127,7 @@ function makeExplorer() {
     legPivots,kneePivots,anklePivots,toePivots,
     armPivots,elbowPivots,wristPivots,headPivot,
     torso,upper,helmet,visorMesh,backpack,
-    antennaLight,chestLight,visorReflection,packTop
+    antennaLight,chestLight,visorReflection,visorDroplets,packTop
   };
 }
 const explorer = makeExplorer();
@@ -1424,16 +1447,16 @@ function createParticleSystem(count) {
   return { count, positions, velocities, life, geometry, points, cursor:0 };
 }
 const spray=createParticleSystem(MOBILE ? 130 : 280);
-function spawnSpray(x,z,amount=9) {
+function spawnSpray(x,z,amount=9,intensity=1) {
   const y=waveHeight(x,z,simulationTime)+0.05;
   for(let j=0;j<amount;j++){
     const i=spray.cursor++%spray.count;
     spray.positions[3*i]=x+(Math.random()-.5)*0.7;
     spray.positions[3*i+1]=y+0.015+Math.random()*0.035;
     spray.positions[3*i+2]=z+(Math.random()-.5)*0.7;
-    spray.velocities[3*i]=(Math.random()-.5)*1.85+velocity.x*0.28;
-    spray.velocities[3*i+1]=0.48+Math.random()*1.35;
-    spray.velocities[3*i+2]=(Math.random()-.5)*1.85+velocity.z*0.28;
+    spray.velocities[3*i]=(Math.random()-.5)*1.85*intensity+velocity.x*0.28;
+    spray.velocities[3*i+1]=(0.48+Math.random()*1.35)*intensity;
+    spray.velocities[3*i+2]=(Math.random()-.5)*1.85*intensity+velocity.z*0.28;
     spray.life[i]=0.48+Math.random()*0.48;
   }
 }
@@ -1479,15 +1502,16 @@ function triggerLocalWake(x,z,strength=0.8){
 
 function spawnRipple(x=player.position.x,z=player.position.z,strength=0.8){
   triggerLocalWake(x,z,strength);
-  for(let band=0;band<2;band++){
+  const bandCount=strength>1.25?3:2;
+  for(let band=0;band<bandCount;band++){
     const r=ripplePool[rippleCursor++%ripplePool.length];
     r.life=1.05;
     r.age=0;
     r.x=x;
     r.z=z;
-    r.baseScale=band===0?0.19:0.31;
-    r.expandSpeed=band===0?2.55:1.95;
-    r.baseOpacity=(band===0?0.48:0.27)*strength;
+    r.baseScale=band===0?0.19:(band===1?0.31:0.43);
+    r.expandSpeed=band===0?2.55:(band===1?1.95:1.48);
+    r.baseOpacity=(band===0?0.48:(band===1?0.27:0.17))*strength;
     r.mesh.visible=true;
     r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.018+band*0.006,z);
     r.mesh.scale.setScalar(r.baseScale);
@@ -1532,7 +1556,7 @@ function updatePlayer(dt) {
   const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085 + weatherState.windDirection.x*weatherState.wind*0.035;
   const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075 + weatherState.windDirection.y*weatherState.wind*0.035;
   const tideFlow = tide.approaching ? pressure * 0.72 : -pressure * 0.24;
-  const sprinting = !!(keys.ShiftLeft || keys.ShiftRight);
+  const sprinting = !!(keys.Sprint || keys.ShiftLeft || keys.ShiftRight);
   const maxSpeed = sprinting ? 3.18 : 1.95;
   const targetX = wish.x * maxSpeed + currentX;
   const targetZ = wish.z * maxSpeed + currentZ + tideFlow;
@@ -1570,14 +1594,14 @@ function updatePlayer(dt) {
       splashTimer=0;
       const landingX=player.position.x;
       const landingZ=player.position.z;
-      spawnSpray(landingX,landingZ,42);
+      spawnSpray(landingX,landingZ,48,1.28);
       spawnRipple(landingX,landingZ,1.55);
       const landingSide=new THREE.Vector3(0.22,0,0)
         .applyAxisAngle(new THREE.Vector3(0,1,0),explorer.root.rotation.y);
       for(const side of [-1,1]){
         const footX=landingX+landingSide.x*side;
         const footZ=landingZ+landingSide.z*side-0.10;
-        spawnSpray(footX,footZ,9);
+        spawnSpray(footX,footZ,11,1.08);
         spawnRipple(footX,footZ,0.82);
       }
     }
@@ -1699,6 +1723,11 @@ function updateExplorerLife(dt,speed){
   explorer.chestLight.scale.x=1.0+0.12*Math.sin(t*2.0+0.4);
   explorer.chestLight.material.opacity=0.84+0.16*Math.sin(t*2.0);
   explorer.visorReflection.material.opacity=0.26+0.06*Math.sin(t*0.7);
+  for(const drop of explorer.visorDroplets){
+    const shimmer=0.5+0.5*Math.sin(t*1.35+drop.phase);
+    drop.mesh.position.y=drop.baseY+Math.sin(t*0.32+drop.phase)*0.0018;
+    drop.mesh.scale.y=drop.baseScaleY*(0.96+shimmer*0.06);
+  }
 
   const idleSway=Math.sin(t*0.83)*0.026*idleAmount;
   for(let side=0;side<2;side++){
@@ -1727,7 +1756,7 @@ function updateExplorerLife(dt,speed){
       digit.distal.set(curl*0.68,0,0);
     });
   }
-  const sprinting=!!(keys.ShiftLeft||keys.ShiftRight);
+  const sprinting=!!(keys.Sprint||keys.ShiftLeft||keys.ShiftRight);
   const locomotionLean=THREE.MathUtils.clamp(-speed*(sprinting?0.045:0.035),sprinting?-0.13:-0.085,0);
   const breathingSway=Math.sin(t*0.52)*0.006*idleAmount;
   const sideBalance=THREE.MathUtils.clamp(-velocity.x*0.025,-0.10,0.10);
@@ -2003,6 +2032,7 @@ function startGame() {
   setJournalOpen(false);
   intro.classList.add("hidden");pauseOverlay.classList.add("hidden");
   if(ambientAudioEnabled)startAmbientAudio();
+  try{renderer.domElement.focus({preventScroll:true});}catch(error){renderer.domElement.focus();}
   if(renderer.domElement.requestPointerLock){
     try{renderer.domElement.requestPointerLock();}catch(error){console.info("Se usará cámara con arrastre",error);}
   }
@@ -2043,46 +2073,75 @@ document.addEventListener("pointerlockchange",()=>{
   if(pointerLocked){hadPointerLock=true;}
   else if(hadPointerLock&&started&&!paused){pauseGame();}
 });
-window.addEventListener("keydown",event=>{
-  if(event.code==="Escape"){
+function getInputCode(event){
+  if(event.code)return event.code;
+  const fallback={
+    " ":"Space","Spacebar":"Space",
+    "w":"KeyW","W":"KeyW","a":"KeyA","A":"KeyA",
+    "s":"KeyS","S":"KeyS","d":"KeyD","D":"KeyD",
+    "ArrowUp":"ArrowUp","ArrowDown":"ArrowDown","ArrowLeft":"ArrowLeft","ArrowRight":"ArrowRight",
+    "Shift":"ShiftLeft","Control":"ControlLeft","Escape":"Escape",
+    "e":"KeyE","E":"KeyE","j":"KeyJ","J":"KeyJ","v":"KeyV","V":"KeyV"
+  };
+  return fallback[event.key]||event.key;
+}
+document.addEventListener("keydown",event=>{
+  const code=getInputCode(event);
+  if(code==="Escape"){
     if(started&&!paused)pauseGame();
     else if(started&&paused)resumeGame();
+    event.preventDefault();
     return;
   }
-  if (event.code === "KeyJ" && !event.repeat && started && !paused) {
+  if(code==="KeyJ"&&!event.repeat&&started&&!paused){
     setJournalOpen(!journalOpen);
     event.preventDefault();
     return;
   }
-  if (event.code === "KeyE" && !event.repeat && started && !paused && !journalOpen) {
-    if (expeditionState.active) {
-      expeditionState.active = null;
-      expeditionState.progress = 0;
+  if(code==="KeyE"&&!event.repeat&&started&&!paused&&!journalOpen){
+    if(expeditionState.active){
+      expeditionState.active=null;
+      expeditionState.progress=0;
       scanProgressWrap.classList.remove("visible");
-      scanAction.textContent = "ESCANEO CANCELADO";
-    } else {
+      scanAction.textContent="ESCANEO CANCELADO";
+    }else{
       startExpeditionScan();
     }
     event.preventDefault();
     return;
   }
-  if (event.code === "KeyV" && !event.repeat && started && !paused) {
-    firstPerson = !firstPerson;
+  if(code==="KeyV"&&!event.repeat&&started&&!paused){
+    firstPerson=!firstPerson;
     cameraLookReady=false;
-    explorer.root.visible = !firstPerson;
+    explorer.root.visible=!firstPerson;
+    event.preventDefault();
     return;
   }
-  if (event.code === "Space" && !keys.Space && started && !paused && !journalOpen) {
-    if(keys.ControlLeft||keys.ControlRight)spaceStrokeRequested=true;
-    else jumpRequested=true;
+  if(code==="Space"){
+    if(started&&!paused&&!journalOpen&&!event.repeat&&!keys.Space){
+      const swimImpulse=event.ctrlKey||keys.ControlLeft||keys.ControlRight;
+      if(swimImpulse)spaceStrokeRequested=true;
+      else if(!isAirborne)jumpRequested=true;
+    }
+    keys.Space=true;
+    if(started)event.preventDefault();
+    return;
   }
-  if (["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(event.code)) event.preventDefault();
-  keys[event.code] = true;
+  keys[code]=true;
+  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift")keys.Sprint=true;
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(code))event.preventDefault();
+},true);
+document.addEventListener("keyup",event=>{
+  const code=getInputCode(event);
+  keys[code]=false;
+  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift")keys.Sprint=!!event.shiftKey;
+  if(code==="Space")keys.Space=false;
+},true);
+window.addEventListener("blur",()=>{
+  for(const k of Object.keys(keys))keys[k]=false;
+  jumpRequested=false;
+  spaceStrokeRequested=false;
 });
-window.addEventListener("keyup", event => {
-  keys[event.code] = false;
-});
-window.addEventListener("blur",()=>{for(const k of Object.keys(keys))keys[k]=false;});
 renderer.domElement.addEventListener("click",()=>{
   if(started&&!paused&&!pointerLocked&&renderer.domElement.requestPointerLock){
     try{renderer.domElement.requestPointerLock();}catch(error){/* drag camera remains available */}
