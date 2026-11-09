@@ -1,47 +1,49 @@
-# TON 618 — Explorador 3D
+# MILLER — Ocean World
 
-Explorador astronómico estático e interactivo de TON 618, pensado para GitHub Pages.
+Experiencia 3D estática de exploración en un océano infinito, inspirada en el planeta Miller de *Interstellar*.
 
-## Qué incluye
+## Juego
 
-- Escena 3D en Three.js: horizonte de sucesos, esfera de fotones, sombra aparente, disco ecuatorial delgado, imágenes superior/inferior del lado lejano y chorros polares animados conceptuales.
-- Vista inicial casi de canto, con composición inspirada en la silueta de Gargantúa de *Interstellar*.
-- Interruptor opcional de corrimiento gravitacional y efecto Doppler aproximados para un disco circular Schwarzschild.
-- Cámara orbital con arrastre, zoom con rueda y vistas predefinidas.
-- Dos estimaciones de masa para comparar: 66,1 mil millones de masas solares (Shemmer et al., 2004) y 40,7 mil millones (estimación posterior atribuida a Ge et al., 2019).
-- Cálculo dinámico del radio y diámetro de Schwarzschild con las constantes físicas indicadas en el panel científico.
-- Panel de ecuaciones, datos observacionales, referencias y limitaciones del modelo.
+- Cámara de tercera persona con giro libre del ratón y cámara de seguimiento.
+- Movimiento WASD, impulso con Espacio y controles táctiles básicos en móviles.
+- Océano procedural que se desplaza con el explorador: la superficie parece continuar indefinidamente y no muestra un borde de mundo.
+- Ondas superpuestas de distintas longitudes, normales aproximadas, Fresnel, reflejo del cielo, destellos solares y espuma en las crestas.
+- Salpicaduras de partículas y anillos de ondas alrededor de las piernas al caminar.
+- Gran pared de marea animada en el horizonte y Gargantúa estilizado como elemento del cielo.
+- HUD con velocidad, altura local de ola y fase visual de marea.
 
 ## Publicación
 
-El workflow de GitHub Actions publica automáticamente la rama `main` en GitHub Pages. La dirección esperada es:
+GitHub Actions despliega el sitio estático en GitHub Pages:
 
 https://thiandominguez100-stack.github.io/ton618/
 
-En el repositorio, abre **Settings → Pages** para confirmar que el origen de publicación figure como **GitHub Actions** si GitHub todavía no lo ha activado automáticamente.
+Código: \`index.html\` + \`game.js\`; sin servidor, Firebase ni instalación.
 
 ## Controles
 
-- Arrastrar: orbitar la cámara.
-- Rueda del ratón: acercar o alejar.
-- Órbita / Ecuador / Polar: cambiar de vista.
-- Panel derecho: cambiar de estimación y activar capas.
-- Física: abrir el cuaderno de ecuaciones y fuentes.
-- Teclado: flechas para orientar; + y - para zoom; Escape para cerrar el panel.
+- **W A S D**: caminar por el agua.
+- **Ratón**: rotar la cámara.
+- **Espacio**: pequeño impulso/salto.
+- **Shift**: caminar más rápido.
+- **Esc**: pausar o continuar.
+- En teléfono: cruceta táctil y arrastre para mirar.
 
-## Base científica y límites
+## Modelo de agua y límites científicos
 
-El horizonte de sucesos se calcula como una solución de Schwarzschild:
+La superficie usa una suma de ondas sinusoidales/Gerstner simplificadas evaluadas en el shader de GPU; las normales se aproximan con diferencias finitas para calcular Fresnel y reflejos de cielo. El sistema de espuma se activa en crestas y las partículas representan salpicaduras.
 
-`r_s = 2GM/c^2`
+No es una simulación CFD ni resuelve Navier–Stokes: la superficie no intercambia momento con un fluido volumétrico y la pared de marea es una representación cinemática inspirada en la película. Se eligió una simulación ligera en tiempo real para mantener la exploración fluida en un navegador.
 
-La visualización mantiene el horizonte como una esfera de radio `r_s` y define las distancias de escena en unidades de `r_s`. Incluye las escalas de esfera de fotones (`1,5 r_s`) y sombra aparente (`3√3 GM/c² ≈ 2,598 r_s`), y una aproximación de corrimiento de frecuencia `g ≈ √(1-r_s/r) / [γ(1-β cos α)]` con intensidad espectral `Iν,obs = g³ Iν,emit`. El disco se dibuja esquemáticamente entre 3 y 16 radios de Schwarzschild; los chorros y la lente gravitacional son representaciones visuales, no una simulación relativista numérica ni una reconstrucción de observaciones de alta resolución. La masa de TON 618 se infiere indirectamente y depende del método de calibración; no debe tratarse como un valor exacto.
+Kip Thorne explicó las grandes olas de Miller como una posible respuesta de los océanos al bamboleo del planeta bajo las enormes fuerzas de marea de Gargantúa; también describió la posibilidad de ondas solitarias/tidales. No existe un conjunto de parámetros observacionales reales para un planeta Miller: la escena no pretende ser una predicción numérica de un exoplaneta conocido.
 
 ## Referencias
 
-- James, von Tunzelmann, Franklin & Thorne (2015), *Gravitational lensing by spinning black holes in astrophysics, and in the movie Interstellar*. [DOI 10.1088/0264-9381/32/6/065001](https://doi.org/10.1088/0264-9381/32/6/065001).
-- Event Horizon Telescope, [How realistic are movie depictions of black holes?](https://eventhorizontelescope.org/faq/how-realistic-are-movie-depictions-black-holes-eg-interstellar).
+- Kip Thorne, *The Science of Interstellar*, capítulo sobre Miller y las mareas; [extracto técnico](https://www.space.com/28077-science-of-interstellar-book-excerpt.html).
+- [Entrevista de Scientific American a Kip Thorne sobre las olas de Miller](https://www.scientificamerican.com/blog/observations/parsing-the-science-of-interstellar-with-physicist-kip-thorne/).
+- James, von Tunzelmann, Franklin & Thorne (2015), [Gravitational lensing by spinning black holes in astrophysics, and in the movie Interstellar](https://doi.org/10.1088/0264-9381/32/6/065001).
+- [Three.js ShaderMaterial](https://threejs.org/docs/pages/ShaderMaterial.html) y [PlaneGeometry](https://threejs.org/docs/pages/PlaneGeometry.html).
 
-- Shemmer et al. (2004), *The Astrophysical Journal*, 614, 547–557. [DOI 10.1086/423607](https://doi.org/10.1086/423607).
-- Valor posterior de 4,07 × 10¹⁰ masas solares atribuido a Ge et al. (2019) y citado, entre otros, en [MNRAS 536 (2025)](https://academic.oup.com/mnras/article/536/4/3177/7923506).
-- [Three.js](https://threejs.org/) — motor de renderizado 3D.
+## Nota de inspiración
+
+MILLER es una experiencia original inspirada en el concepto de un planeta oceánico y sus mareas extremas. Los nombres y elementos cinematográficos se usan como referencia temática; el juego no reproduce assets de la película.
