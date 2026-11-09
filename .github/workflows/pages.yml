@@ -27,7 +27,6 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          from pathlib import Path
           html = Path("index.html").read_text(encoding="utf-8")
           assert 'src="./game.js"' in html, "game.js module is not linked from index.html"
           Path('/tmp/miller-game.mjs').write_text(Path("game.js").read_text(encoding="utf-8"), encoding="utf-8")
