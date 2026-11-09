@@ -283,6 +283,8 @@ function createOcean() {
     "uniform vec3 uSunDir;",
     "uniform float uTideZ;",
     "uniform float uWaterLevel;",
+    "uniform float uWaterDepth;",
+    "uniform float uUnderwaterView;",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
     "varying vec3 vWaveNormal;",
@@ -335,6 +337,20 @@ function createOcean() {
     "vec3 waterBody=mix(vec3(0.002,0.018,0.030),vec3(0.010,0.105,0.135),1.0-dot(attenuation,vec3(0.3333)));",
     "waterBody+=vec3(0.002,0.025,0.030)*nDotL;",
     "vec3 water=mix(waterBody,reflected,fresnel)+directSpec;",
+    // Shallow transmitted view of the sand with refractive caustic light drifting across it.
+    "vec2 sandUV=p*0.19;",
+    "float sandRidge=0.5+0.5*sin(sandUV.y*13.0+sin(sandUV.x*4.2+uTime*0.08)*1.65);",
+    "float sandGrain=fbm(sandUV*2.7+vec2(4.2,11.8));",
+    "vec3 sandColor=mix(vec3(0.20,0.20,0.16),vec3(0.57,0.52,0.40),clamp(sandRidge*0.58+sandGrain*0.42,0.0,1.0));",
+    "float causticA=sin(sandUV.x*8.1+sin(sandUV.y*5.3+uTime*1.25)*1.55);",
+    "float causticB=sin(sandUV.y*7.4+sin(sandUV.x*4.6-uTime*1.05)*1.42);",
+    "float causticVein=pow(clamp(1.0-abs(causticA*causticB),0.0,1.0),6.0);",
+    "float causticSoft=fbm(sandUV*4.0+vec2(-uTime*0.11,uTime*0.07));",
+    "float causticEnergy=clamp(causticVein*(0.70+causticSoft*0.65),0.0,1.2);",
+    "vec3 sandLit=sandColor*(0.72+causticEnergy*1.15);",
+    "float bottomVisibility=exp(-uWaterDepth*1.35/max(nDotV,0.18));",
+    "float bottomMix=(1.0-fresnel)*bottomVisibility*0.34;",
+    "water=mix(water,sandLit,bottomMix);",
     // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
     "float foamNoise=fbm(p*0.041+vec2(-uTime*0.055,uTime*0.031));",
     "float foamGrain=noise(p*0.19+vec2(-uTime*0.15,uTime*0.095));",
@@ -349,12 +365,12 @@ function createOcean() {
     "float bubbles=smoothstep(0.68,0.91,noise(p*0.25+vec2(-uTime*0.18,uTime*0.12)))*whitecap;",
     "vec3 foamColor=vec3(0.72,0.86,0.86)+vec3(0.10,0.10,0.08)*nDotL;",
     "water=mix(water,foamColor,clamp(whitecap+bubbles*0.24,0.0,0.92));",
-    "float underwaterView=1.0-smoothstep(uWaterLevel-0.06,uWaterLevel+0.06,cameraPosition.y);",
-    "water=mix(water,vec3(0.018,0.115,0.145),underwaterView*0.62);",
+    "float underwaterView=uUnderwaterView;",
+    "water=mix(water,vec3(0.018,0.115,0.145),underwaterView*0.44);",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
     "float fog=1.0-exp(-pow(distanceToCamera*0.00052,2.0));",
     "vec3 horizon=vec3(0.50,0.58,0.57);water=mix(water,horizon,clamp(fog,0.0,0.82));",
-    "gl_FragColor=vec4(water,1.0);",
+    "gl_FragColor=vec4(water,mix(1.0,0.42,uUnderwaterView));",
     "#include <tonemapping_fragment>",
     "#include <colorspace_fragment>",
     "}"
@@ -369,13 +385,17 @@ function createOcean() {
       uTideZ: { value: -720 },
       uTideX: { value: 0 },
       uWaterLevel: { value: WATER_LEVEL },
+      uWaterDepth: { value: WATER_DEPTH_MEAN },
+      uUnderwaterView: { value: 0 },
       uSunDir: { value: SUN_DIR.clone() },
       uWaveData: { value: waveUniforms },
       uWaveMotion: { value: motionUniforms }
     },
     vertexShader,
     fragmentShader,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    transparent: true,
+    depthWrite: false
   });
   const ocean = new THREE.Mesh(geometry, material);
   ocean.frustumCulled = false;
@@ -465,6 +485,48 @@ function createSeabed() {
   return { mesh: floor, colorTexture, heightTexture };
 }
 const seabed = createSeabed();
+
+function createCaustics() {
+  const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, 1, 1);
+  geometry.rotateX(-Math.PI / 2);
+  const material = new THREE.ShaderMaterial({
+    uniforms: {
+      uTime: { value: 0 },
+      uOrigin: { value: new THREE.Vector2(0, 0) }
+    },
+    vertexShader: [
+      "varying vec2 vUv;",
+      "void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}"
+    ].join("\n"),
+    fragmentShader: [
+      "uniform float uTime;",
+      "uniform vec2 uOrigin;",
+      "varying vec2 vUv;",
+      "void main(){",
+      "vec2 p=(vUv-0.5)*3000.0+uOrigin;",
+      "vec2 q=p*0.105;",
+      "float a=sin(q.x*8.1+sin(q.y*5.3+uTime*1.25)*1.55);",
+      "float b=sin(q.y*7.4+sin(q.x*4.6-uTime*1.05)*1.42);",
+      "float veins=pow(clamp(1.0-abs(a*b),0.0,1.0),6.0);",
+      "float detail=0.65+0.35*sin(q.x*2.4+q.y*3.1+uTime*0.72);",
+      "float intensity=clamp(veins*detail,0.0,1.0);",
+      "gl_FragColor=vec4(vec3(0.46,0.83,0.83),intensity*0.27);",
+      "}"
+    ].join("\n"),
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.y = GROUND_Y + 0.018;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 0.5;
+  scene.add(mesh);
+  return { mesh, material };
+}
+const caustics = createCaustics();
 
 function createGargantua() {
   const group = new THREE.Group();
@@ -763,7 +825,9 @@ function updateCamera(dt) {
     );
     cameraTarget.set(player.position.x, targetY, player.position.z);
   }
+  cameraDesired.y = Math.max(cameraDesired.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
   camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? 12 : 4.5)));
+  camera.position.y = Math.max(camera.position.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
   camera.lookAt(cameraTarget);
   // Let the horizon gently respond to the passing swell instead of feeling locked in place.
   const leftHeight=waveHeight(player.position.x-2,player.position.z,simulationTime);
@@ -781,6 +845,9 @@ function updateScene(dt, speed) {
 
   ocean.position.set(player.position.x, WATER_LEVEL, player.position.z);
   seabed.mesh.position.set(player.position.x, GROUND_Y, player.position.z);
+  caustics.mesh.position.set(player.position.x, GROUND_Y + 0.018, player.position.z);
+  caustics.material.uniforms.uOrigin.value.set(player.position.x, player.position.z);
+  caustics.material.uniforms.uTime.value = simulationTime;
   const seabedTileWorld = WATER_SIZE / 52;
   seabed.colorTexture.offset.set(player.position.x / seabedTileWorld, player.position.z / seabedTileWorld);
   seabed.heightTexture.offset.copy(seabed.colorTexture.offset);
@@ -811,6 +878,7 @@ function updateScene(dt, speed) {
   updateRipples(dt);
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const underwater = firstPerson && camera.position.y < surfaceY;
+  ocean.material.uniforms.uUnderwaterView.value = underwater ? 1 : 0;
   underwaterOverlay.style.opacity = underwater ? "1" : "0";
   document.body.classList.toggle("tide-near", tide.distance < 260);
 
