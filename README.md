@@ -1,16 +1,17 @@
 # MILLER — Ocean World
 
-Experiencia 3D estática de exploración en un océano infinito, inspirada en el planeta Miller de *Interstellar*.
+Experiencia 3D de exploración libre en un océano planetario interminable, inspirada en el planeta Miller de *Interstellar*.
 
-## Juego
+## La expedición
 
-- Cámara de tercera persona con giro libre del ratón y cámara de seguimiento.
-- Movimiento WASD, impulso con Espacio y controles táctiles básicos en móviles.
-- Océano procedural que se desplaza con el explorador: la superficie parece continuar indefinidamente y no muestra un borde de mundo.
-- Ondas superpuestas de distintas longitudes, normales aproximadas, Fresnel, reflejo del cielo, destellos solares y espuma en las crestas.
-- Salpicaduras de partículas y anillos de ondas alrededor de las piernas al caminar.
-- Gran pared de marea animada en el horizonte y Gargantúa estilizado como elemento del cielo.
-- HUD con velocidad, altura local de ola y fase visual de marea.
+- Cámara de tercera persona con seguimiento y modo de primera persona; ambas permiten mirar libremente.
+- Explorador animado con movimiento en el agua, impulso de nado, inmersión y una transición visual entre vadear y nadar.
+- Flotación mediante un modelo ligero de fuerza restauradora y amortiguación: el personaje sube y baja siguiendo la superficie.
+- Corrientes superficiales que influyen suavemente en el movimiento, más un empuje intenso cuando la gran marea se aproxima.
+- Océano procedural de gran extensión que sigue al jugador; ondas superpuestas con desplazamiento horizontal tipo Gerstner simplificado.
+- Reflejos aproximados del cielo, Fresnel, destellos solares, espuma de cresta, salpicaduras y anillos de ondas.
+- Una ola colosal que avanza hacia el explorador, alcanza una distancia mínima, genera espuma y corriente, y luego se retira. El ciclo se repite.
+- Gargantúa en el cielo, bruma atmosférica y un HUD con velocidad, altura del agua, dirección de la marea, distancia del frente y estado del explorador.
 
 ## Publicación
 
@@ -18,24 +19,24 @@ GitHub Actions despliega el sitio estático en GitHub Pages:
 
 https://thiandominguez100-stack.github.io/ton618/
 
-Código: \`index.html\` + \`game.js\`; sin servidor, Firebase ni instalación.
+Código principal: `index.html` + `game.js`. No necesita servidor propio, Firebase ni instalación.
 
 ## Controles
 
-- **W A S D**: caminar por el agua.
-- **Ratón**: rotar la cámara.
-- **Espacio**: pequeño impulso/salto.
-- **Shift**: caminar más rápido.
+- **W A S D**: desplazarse por el océano.
+- **Ratón**: girar la cámara.
+- **V**: alternar primera y tercera persona.
+- **Ctrl**: sumergirse.
+- **Espacio**: impulso de nado hacia arriba.
+- **Shift**: desplazamiento rápido.
 - **Esc**: pausar o continuar.
-- En teléfono: cruceta táctil y arrastre para mirar.
+- En móvil: cruceta táctil para moverse y arrastre para mirar.
 
-## Modelo de agua y límites científicos
+## Modelo físico y límites científicos
 
-La superficie usa una suma de ondas sinusoidales/Gerstner simplificadas evaluadas en el shader de GPU; las normales se aproximan con diferencias finitas para calcular Fresnel y reflejos de cielo. El sistema de espuma se activa en crestas y las partículas representan salpicaduras.
+La superficie se calcula en el shader de GPU con ondas superpuestas y desplazamiento horizontal tipo Gerstner simplificado. El personaje sigue la altura local del agua mediante una fuerza de flotación aproximada con amortiguación; corrientes y empuje de marea modifican su velocidad. La gran ola tiene un frente animado con un ciclo de aproximación y retirada. Se añaden espuma y partículas para comunicar el movimiento.
 
-No es una simulación CFD ni resuelve Navier–Stokes: la superficie no intercambia momento con un fluido volumétrico y la pared de marea es una representación cinemática inspirada en la película. Se eligió una simulación ligera en tiempo real para mantener la exploración fluida en un navegador.
-
-Kip Thorne explicó las grandes olas de Miller como una posible respuesta de los océanos al bamboleo del planeta bajo las enormes fuerzas de marea de Gargantúa; también describió la posibilidad de ondas solitarias/tidales. No existe un conjunto de parámetros observacionales reales para un planeta Miller: la escena no pretende ser una predicción numérica de un exoplaneta conocido.
+No es una simulación CFD ni resuelve Navier–Stokes: no calcula el fluido volumétrico, turbulencia real ni transferencia de momento en tres dimensiones. La flotación es un modelo de juego, no un cálculo de ingeniería naval, y la ola es una representación cinemática inspirada en la película. Tampoco existen parámetros observacionales de un planeta Miller real; la escena no pretende ser una predicción numérica de un exoplaneta conocido.
 
 ## Referencias
 
