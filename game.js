@@ -1155,11 +1155,12 @@ function updateExpeditionSystem(dt,speed) {
     const compass = ["N","NE","E","SE","S","SO","O","NO"];
     const direction = compass[Math.round(bearing/(Math.PI/4))%8];
     signalNav.classList.add("active");
+    signalNav.classList.toggle("near",distance<31);
     signalNavArrow.style.transform = "rotate("+(-relativeYaw)+"rad)";
     signalNavDistance.textContent = Math.round(distance)+" m · "+direction;
     signalNavTitle.textContent = distance < 31 ? "SEÑAL DETECTADA" : "SEÑAL MÁS CERCANA";
   } else {
-    signalNav.classList.remove("active");
+    signalNav.classList.remove("active","near");
     signalNavTitle.textContent = "TODAS LAS SEÑALES REGISTRADAS";
     signalNavDistance.textContent = "EXPEDICIÓN COMPLETADA";
   }
