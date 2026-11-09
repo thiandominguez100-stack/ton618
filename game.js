@@ -143,7 +143,9 @@ function waveHeight(x, z, time) {
     Math.sin(front * 0.024 - time * 0.55);
   height += tideAmplitude * lateral * (mainSwell + trailingSwell);
   const verticalLimit = 0.11;
-  const boundedHeight = verticalLimit * Math.tanh(height / verticalLimit);
+  const normalizedHeight = height / verticalLimit;
+  const boundedHeight = verticalLimit * normalizedHeight /
+    Math.sqrt(1 + normalizedHeight * normalizedHeight);
   return WATER_LEVEL + boundedHeight;
 }
 
@@ -262,8 +264,10 @@ function createOcean() {
     "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
     "dYdx+=lateralDx*tideShape;",
     "dYdz+=lateral*tideSlope;",
-    "float softHeight=tanh(height/0.11);",
-    "float verticalScale=1.0-softHeight*softHeight;",
+    "float waveRatio=height/0.11;",
+    "float waveRoot=sqrt(1.0+waveRatio*waveRatio);",
+    "float softHeight=waveRatio/waveRoot;",
+    "float verticalScale=1.0/pow(1.0+waveRatio*waveRatio,1.5);",
     "height=0.11*softHeight;",
     "dYdx*=verticalScale;",
     "dYdz*=verticalScale;",
@@ -346,9 +350,10 @@ function createOcean() {
     // Beer-Lambert-inspired attenuation plus blue-green in-scattering color the transmitted light.
     "float opticalPath=2.8/max(nDotV,0.14);",
     "vec3 attenuation=exp(-vec3(0.23,0.075,0.030)*opticalPath);",
-    "vec3 waterBody=mix(vec3(0.008,0.050,0.067),vec3(0.026,0.175,0.205),1.0-dot(attenuation,vec3(0.3333)));",
-    "waterBody+=vec3(0.008,0.043,0.050)*nDotL;",
-    "vec3 water=mix(waterBody,reflected,fresnel)+directSpec+movingSunGlints;",
+    "vec3 waterBody=mix(vec3(0.006,0.065,0.082),vec3(0.040,0.235,0.275),1.0-dot(attenuation,vec3(0.3333)));",
+    "waterBody+=vec3(0.014,0.060,0.072)*(0.38+0.62*nDotL);",
+    "float reflectionWeight=clamp(fresnel*1.65+0.025,0.025,0.72);",
+    "vec3 water=mix(waterBody,reflected,reflectionWeight)+directSpec+movingSunGlints;",
     // Shallow transmitted view of the sand with refractive caustic light drifting across it.
     "vec2 sandUV=p*0.19;",
     "float sandRidge=0.5+0.5*sin(sandUV.y*13.0+sin(sandUV.x*4.2+uTime*0.08)*1.65);",
@@ -382,7 +387,7 @@ function createOcean() {
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
     "float fog=1.0-exp(-pow(distanceToCamera*0.00052,2.0));",
     "vec3 horizon=vec3(0.50,0.58,0.57);water=mix(water,horizon,clamp(fog,0.0,0.82));",
-    "gl_FragColor=vec4(water,1.0);",
+    "gl_FragColor=vec4(water,mix(1.0,0.58,uUnderwaterView));",
     "#include <tonemapping_fragment>",
     "#include <colorspace_fragment>",
     "}"
@@ -416,6 +421,24 @@ function createOcean() {
   return ocean;
 }
 const ocean = createOcean();
+
+function createOceanUnderlay() {
+  const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, 1, 1);
+  geometry.rotateX(-Math.PI / 2);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x0b5b69,
+    roughness: 0.30,
+    metalness: 0.035,
+    side: THREE.DoubleSide
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.y = WATER_LEVEL - 0.16;
+  mesh.frustumCulled = false;
+  mesh.renderOrder = 0.8;
+  scene.add(mesh);
+  return mesh;
+}
+const oceanUnderlay = createOceanUnderlay();
 
 function createSeabed() {
   const canvasSize = 512;
@@ -858,6 +881,7 @@ function updateScene(dt, speed) {
   tideAmplitude = 1;
 
   ocean.position.set(player.position.x, WATER_LEVEL, player.position.z);
+  oceanUnderlay.position.set(player.position.x, WATER_LEVEL - 0.16, player.position.z);
   seabed.mesh.position.set(player.position.x, GROUND_Y, player.position.z);
   caustics.mesh.position.set(player.position.x, GROUND_Y + 0.018, player.position.z);
   caustics.material.uniforms.uOrigin.value.set(player.position.x, player.position.z);
