@@ -950,7 +950,7 @@ function makeExplorer() {
     upperArm.position.y=-0.21;shoulder.add(upperArm);
     const upperShell=new THREE.Mesh(new THREE.SphereGeometry(0.145,16,12),suit);
     upperShell.position.set(0,-0.20,-0.02);upperShell.scale.set(1,1.48,0.86);shoulder.add(upperShell);
-    const armSeam=new THREE.Mesh(new THREE.TorusGeometry(0.132,0.009,6,28),trim);
+    const armSeam=new THREE.Mesh(new THREE.TorusGeometry(0.151,0.006,6,28),trim);
     armSeam.rotation.x=Math.PI/2;
     armSeam.position.set(0,-0.345,-0.005);
     shoulder.add(armSeam);
@@ -2128,7 +2128,7 @@ document.addEventListener("keydown",event=>{
     return;
   }
   keys[code]=true;
-  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift")keys.Sprint=true;
+  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift"||event.shiftKey)keys.Sprint=true;
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(code))event.preventDefault();
 },true);
 document.addEventListener("keyup",event=>{
