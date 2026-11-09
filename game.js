@@ -16,6 +16,8 @@ const clockLabel = document.getElementById("clockLabel");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
+const WATER_DEPTH_MEAN = 0.48;
+const WATER_LEVEL = GROUND_Y + WATER_DEPTH_MEAN;
 const WATER_SIZE = 3000;
 const SUN_DIR = new THREE.Vector3(-0.48, 0.27, -0.83).normalize();
 
@@ -81,20 +83,21 @@ function tideCycleAt(time) {
 }
 
 const OCEAN_GRAVITY = 9.81;
-const OCEAN_DEPTH = 350;
-const OCEAN_WIND_SPEED = 28; // m/s: deliberately stormy Miller sea state
+const OCEAN_DEPTH = WATER_DEPTH_MEAN;
+const OCEAN_WIND_SPEED = 8.0;
+const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.34;
 const OCEAN_WAVES_COUNT = 10;
 const OCEAN_WAVE_BINS = [
-  { wavelength: 1100, angle: -8, phase: 0.4 },
-  { wavelength: 760, angle: 5, phase: 2.2 },
-  { wavelength: 520, angle: -14, phase: 4.1 },
-  { wavelength: 360, angle: 12, phase: 1.5 },
-  { wavelength: 250, angle: -21, phase: 3.2 },
-  { wavelength: 170, angle: 22, phase: 5.1 },
-  { wavelength: 115, angle: -28, phase: 0.9 },
-  { wavelength: 75, angle: 29, phase: 2.8 },
-  { wavelength: 48, angle: -35, phase: 4.7 },
-  { wavelength: 30, angle: 34, phase: 1.9 }
+  { wavelength: 60, angle: -8, phase: 0.4 },
+  { wavelength: 44, angle: 5, phase: 2.2 },
+  { wavelength: 33, angle: -14, phase: 4.1 },
+  { wavelength: 25, angle: 12, phase: 1.5 },
+  { wavelength: 19, angle: -21, phase: 3.2 },
+  { wavelength: 15, angle: 22, phase: 5.1 },
+  { wavelength: 12, angle: -28, phase: 0.9 },
+  { wavelength: 9, angle: 29, phase: 2.8 },
+  { wavelength: 6.5, angle: -35, phase: 4.7 },
+  { wavelength: 4.5, angle: 34, phase: 1.9 }
 ];
 
 function jonswapAmplitude(wavelength) {
@@ -106,18 +109,22 @@ function jonswapAmplitude(wavelength) {
     (2 * sigma * sigma * peakOmega * peakOmega));
   const spectrum = 0.0081 * OCEAN_GRAVITY * OCEAN_GRAVITY / Math.pow(omega, 5) *
     Math.exp(-1.25 * Math.pow(peakOmega / omega, 4)) * Math.pow(3.3, peakShape);
-  return Math.sqrt(2 * spectrum * (0.15 * omega));
+  return Math.sqrt(2 * spectrum * (0.12 * omega));
 }
 
-const OCEAN_WAVES = OCEAN_WAVE_BINS.map(bin => {
+const rawWaveAmplitudes = OCEAN_WAVE_BINS.map(bin => jonswapAmplitude(bin.wavelength));
+const rawVariance = rawWaveAmplitudes.reduce((sum, amplitude) => sum + amplitude * amplitude * 0.5, 0);
+const rawSignificantHeight = 4 * Math.sqrt(Math.max(rawVariance, 1e-8));
+const waveEnergyScale = OCEAN_TARGET_SIGNIFICANT_HEIGHT / Math.max(rawSignificantHeight, 1e-5);
+
+const OCEAN_WAVES = OCEAN_WAVE_BINS.map((bin, index) => {
   const angle = THREE.MathUtils.degToRad(bin.angle);
   const dirX = Math.sin(angle);
   const dirZ = -Math.cos(angle);
   const k = 2 * Math.PI / bin.wavelength;
   const omega = Math.sqrt(OCEAN_GRAVITY * k * Math.tanh(k * OCEAN_DEPTH));
-  const amplitude = jonswapAmplitude(bin.wavelength);
-  // Sum(Q_i * k_i * A_i) remains below one so Gerstner crests do not loop.
-  const horizontalAmplitude = 0.68 / (OCEAN_WAVES_COUNT * k);
+  const amplitude = rawWaveAmplitudes[index] * waveEnergyScale;
+  const horizontalAmplitude = 0.56 / (OCEAN_WAVES_COUNT * k);
   return { dirX, dirZ, k, omega, amplitude, phase: bin.phase, horizontalAmplitude };
 });
 
@@ -129,12 +136,12 @@ function waveHeight(x, z, time) {
   }
   const lateralX = (x - tideCenterX) / 780;
   const lateral = Math.exp(-Math.pow(lateralX, 8));
-  const bend = Math.sin(x * 0.0035 + time * 0.13) * 0.13 +
-    Math.sin(x * 0.010 - time * 0.21) * 0.055;
-  const tidePhase = (z - tideFrontZ + bend * 110) * 0.0085 + Math.PI * 0.5;
-  height += tideAmplitude * lateral *
-    (26 * Math.sin(tidePhase) + 4.2 * Math.sin(2 * tidePhase - 0.42));
-  return height;
+  const front = z - tideFrontZ;
+  const mainSwell = 0.62 * Math.exp(-Math.pow(front / 72, 2));
+  const trailingSwell = 0.10 * Math.exp(-Math.pow((front + 105) / 85, 2)) *
+    Math.sin(front * 0.024 - time * 0.55);
+  height += tideAmplitude * lateral * (mainSwell + trailingSwell);
+  return WATER_LEVEL + height;
 }
 
 function createSkyDome() {
@@ -220,16 +227,16 @@ function createOcean() {
     "}",
     "float lateralX=(p.x-uTideX)/780.0;",
     "float lateral=exp(-pow(lateralX,8.0));",
-    "float bend=sin(p.x*0.0035+t*0.13)*0.13+sin(p.x*0.010-t*0.21)*0.055;",
-    "float bendDx=cos(p.x*0.0035+t*0.13)*0.13*0.0035+cos(p.x*0.010-t*0.21)*0.055*0.010;",
-    "float tideK=0.0085;",
-    "float tidePhase=(p.y-uTideZ+bend*110.0)*tideK+1.5707963;",
-    "float tideShape=26.0*sin(tidePhase)+4.2*sin(2.0*tidePhase-0.42);",
-    "float tideSlope=26.0*cos(tidePhase)+8.4*cos(2.0*tidePhase-0.42);",
+    "float front=p.y-uTideZ;",
+    "float g1=exp(-pow(front/72.0,2.0));",
+    "float f2=front*0.024-t*0.55;",
+    "float g2=exp(-pow((front+105.0)/85.0,2.0));",
+    "float tideShape=0.62*g1+0.10*g2*sin(f2);",
+    "float tideSlope=0.62*g1*(-2.0*front/(72.0*72.0))+0.10*g2*(-2.0*(front+105.0)/(85.0*85.0))*sin(f2)+0.10*g2*0.024*cos(f2);",
     "height+=lateral*tideShape;",
     "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
-    "dYdx+=lateralDx*tideShape+lateral*tideSlope*bendDx*110.0*tideK;",
-    "dYdz+=lateral*tideSlope*tideK;",
+    "dYdx+=lateralDx*tideShape;",
+    "dYdz+=lateral*tideSlope;",
     "tangentX=vec3(dXdx,dYdx,dZdx);",
     "tangentZ=vec3(dXdz,dYdz,dZdz);",
     "float jacobian=dXdx*dZdz-dXdz*dZdx;",
@@ -252,6 +259,7 @@ function createOcean() {
     "uniform float uTime;",
     "uniform vec3 uSunDir;",
     "uniform float uTideZ;",
+    "uniform float uWaterLevel;",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
     "varying vec3 vWaveNormal;",
@@ -300,17 +308,21 @@ function createOcean() {
     "waterBody+=vec3(0.002,0.025,0.030)*nDotL;",
     "vec3 water=mix(waterBody,reflected,fresnel)+directSpec;",
     // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
-    "float foamNoise=fbm(p*0.026+vec2(-uTime*0.038,uTime*0.021));",
-    "float foamGrain=noise(p*0.13+vec2(-uTime*0.12,uTime*0.075));",
-    "float compressionFoam=smoothstep(0.13,0.47,vCompression);",
-    "float tideFront=p.y-uTideZ+sin(p.x*0.0035+uTime*0.13)*14.0;",
-    "float tideCrest=exp(-pow(tideFront/31.0,2.0));",
-    "float crestFoam=tideCrest*smoothstep(0.34,0.68,foamNoise);",
-    "float whitecap=clamp(compressionFoam*(0.20+0.80*smoothstep(0.34,0.73,foamNoise))+crestFoam*0.78,0.0,0.88);",
-    "whitecap*=0.62+0.38*smoothstep(0.22,0.82,foamGrain);",
-    "float bubbles=smoothstep(0.70,0.90,noise(p*0.22+vec2(-uTime*0.15,uTime*0.10)))*whitecap;",
+    "float foamNoise=fbm(p*0.041+vec2(-uTime*0.055,uTime*0.031));",
+    "float foamGrain=noise(p*0.19+vec2(-uTime*0.15,uTime*0.095));",
+    "float compressionFoam=smoothstep(0.10,0.34,vCompression);",
+    "float localCrest=smoothstep(0.10,0.18,vHeight);",
+    "float tideFront=p.y-uTideZ;",
+    "float tideCrest=exp(-pow(tideFront/22.0,2.0));",
+    "float crestFoam=tideCrest*smoothstep(0.28,0.64,foamNoise);",
+    "float foamRibbons=smoothstep(0.60,0.78,noise(p*0.075+vec2(-uTime*0.08,uTime*0.05)))*localCrest;",
+    "float whitecap=clamp(compressionFoam*(0.18+0.82*smoothstep(0.30,0.70,foamNoise))+crestFoam*0.92+foamRibbons*0.18,0.0,0.86);",
+    "whitecap*=0.48+0.52*smoothstep(0.18,0.84,foamGrain);",
+    "float bubbles=smoothstep(0.68,0.91,noise(p*0.25+vec2(-uTime*0.18,uTime*0.12)))*whitecap;",
     "vec3 foamColor=vec3(0.72,0.86,0.86)+vec3(0.10,0.10,0.08)*nDotL;",
     "water=mix(water,foamColor,clamp(whitecap+bubbles*0.24,0.0,0.92));",
+    "float underwaterView=1.0-smoothstep(uWaterLevel-0.06,uWaterLevel+0.06,cameraPosition.y);",
+    "water=mix(water,vec3(0.018,0.115,0.145),underwaterView*0.62);",
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
     "float fog=1.0-exp(-pow(distanceToCamera*0.00052,2.0));",
     "vec3 horizon=vec3(0.50,0.58,0.57);water=mix(water,horizon,clamp(fog,0.0,0.82));",
@@ -328,6 +340,7 @@ function createOcean() {
       uOrigin: { value: new THREE.Vector2(0, 0) },
       uTideZ: { value: -720 },
       uTideX: { value: 0 },
+      uWaterLevel: { value: WATER_LEVEL },
       uSunDir: { value: SUN_DIR.clone() },
       uWaveData: { value: waveUniforms },
       uWaveMotion: { value: motionUniforms }
@@ -344,7 +357,86 @@ function createOcean() {
 }
 const ocean = createOcean();
 
+function createSeabed() {
+  const canvasSize = 512;
+  const colorCanvas = document.createElement("canvas");
+  colorCanvas.width = colorCanvas.height = canvasSize;
+  const colorContext = colorCanvas.getContext("2d");
+  const colorImage = colorContext.createImageData(canvasSize, canvasSize);
+  const heightCanvas = document.createElement("canvas");
+  heightCanvas.width = heightCanvas.height = canvasSize;
+  const heightContext = heightCanvas.getContext("2d");
+  const heightImage = heightContext.createImageData(canvasSize, canvasSize);
 
+  for (let y = 0; y < canvasSize; y++) {
+    for (let x = 0; x < canvasSize; x++) {
+      const index = (y * canvasSize + x) * 4;
+      const ridge = Math.sin(y * 0.19 + Math.sin(x * 0.028) * 2.2 +
+        Math.sin(y * 0.035 + x * 0.017) * 1.1);
+      const grain = Math.sin(x * 12.9898 + y * 78.233) *
+        Math.sin(x * 0.173 + y * 0.137);
+      const patches = Math.sin(x * 0.036 + Math.sin(y * 0.022) * 1.6) * 0.5;
+      const luminance = 116 + ridge * 10 + grain * 8 + patches * 7;
+      colorImage.data[index] = luminance * 1.02;
+      colorImage.data[index + 1] = luminance * 1.05;
+      colorImage.data[index + 2] = luminance * 0.91;
+      colorImage.data[index + 3] = 255;
+      const relief = 128 + ridge * 34 + grain * 22 + patches * 14;
+      heightImage.data[index] = relief;
+      heightImage.data[index + 1] = relief;
+      heightImage.data[index + 2] = relief;
+      heightImage.data[index + 3] = 255;
+    }
+  }
+  colorContext.putImageData(colorImage, 0, 0);
+  heightContext.putImageData(heightImage, 0, 0);
+
+  // Sparse stones and shell fragments break up the fine sand ripples.
+  let seed = 9137;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  for (let i = 0; i < 190; i++) {
+    const x = random() * canvasSize;
+    const y = random() * canvasSize;
+    const radius = 1.0 + random() * 4.2;
+    colorContext.beginPath();
+    colorContext.fillStyle = random() > 0.48 ? "rgba(42,58,55,0.25)" : "rgba(221,213,184,0.22)";
+    colorContext.ellipse(x, y, radius * (0.7 + random() * 0.8), radius, random() * Math.PI, 0, Math.PI * 2);
+    colorContext.fill();
+  }
+
+  const colorTexture = new THREE.CanvasTexture(colorCanvas);
+  colorTexture.colorSpace = THREE.SRGBColorSpace;
+  colorTexture.wrapS = colorTexture.wrapT = THREE.RepeatWrapping;
+  colorTexture.repeat.set(52, 52);
+  colorTexture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 8);
+
+  const heightTexture = new THREE.CanvasTexture(heightCanvas);
+  heightTexture.wrapS = heightTexture.wrapT = THREE.RepeatWrapping;
+  heightTexture.repeat.copy(colorTexture.repeat);
+  heightTexture.anisotropy = colorTexture.anisotropy;
+
+  const geometry = new THREE.PlaneGeometry(WATER_SIZE, WATER_SIZE, 1, 1);
+  geometry.rotateX(-Math.PI / 2);
+  const material = new THREE.MeshStandardMaterial({
+    color: 0xa0a69a,
+    map: colorTexture,
+    bumpMap: heightTexture,
+    bumpScale: 0.075,
+    roughness: 0.96,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+  });
+  const floor = new THREE.Mesh(geometry, material);
+  floor.position.set(0, GROUND_Y, 0);
+  floor.receiveShadow = true;
+  floor.frustumCulled = false;
+  scene.add(floor);
+  return { mesh: floor, colorTexture, heightTexture };
+}
+const seabed = createSeabed();
 
 function createGargantua() {
   const group = new THREE.Group();
@@ -441,10 +533,16 @@ function makeExplorer() {
   const legPivots=[];
   for(const side of [-1,1]){
     const pivot=new THREE.Group();pivot.position.set(side*0.22,0.94,0);root.add(pivot);
-    const leg=new THREE.Mesh(new THREE.CylinderGeometry(0.15,0.18,0.72,14),suit);
-    leg.position.y=-0.38;pivot.add(leg);
-    const knee=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),orange);
-    knee.position.y=-0.72;pivot.add(knee);
+    const thigh=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.145,0.48,16),suit);
+    thigh.position.y=-0.24;pivot.add(thigh);
+    const knee=new THREE.Mesh(new THREE.SphereGeometry(0.145,14,12),orange);
+    knee.position.y=-0.49;pivot.add(knee);
+    const kneeGuard=new THREE.Mesh(new THREE.SphereGeometry(0.13,12,10),dark);
+    kneeGuard.position.set(0,-0.48,-0.115);kneeGuard.scale.set(0.92,0.78,0.34);pivot.add(kneeGuard);
+    const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.125,0.15,0.49,14),suit);
+    shin.position.y=-0.735;pivot.add(shin);
+    const shinSeal=new THREE.Mesh(new THREE.TorusGeometry(0.132,0.027,7,18),orange);
+    shinSeal.position.y=-0.89;pivot.add(shinSeal);
     const boot=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.24,0.48),dark);
     boot.position.set(0,-0.88,-0.06);pivot.add(boot);
     const bootStripe=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.045,0.12),glow);
@@ -549,77 +647,69 @@ function updatePlayer(dt) {
   if (wish.lengthSq() > 1) wish.normalize();
 
   const tide = tideCycleAt(simulationTime);
-  const pressure = 1 - THREE.MathUtils.smoothstep(tide.distance, 92, 340);
-  const currentX = Math.sin(player.position.z * 0.008 + simulationTime * 0.19) * 0.34;
-  const currentZ = Math.cos(player.position.x * 0.006 - simulationTime * 0.16) * 0.26;
-  const tideFlow = tide.approaching ? pressure * 3.3 : -pressure * 0.65;
-  const maxSpeed = (keys.ShiftLeft || keys.ShiftRight) ? 7.8 : 5.2;
+  const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
+  const waterDepth = THREE.MathUtils.clamp(surfaceY - GROUND_Y, 0.12, 0.95);
+  const pressure = 1 - THREE.MathUtils.smoothstep(tide.distance, 45, 220);
+  const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085;
+  const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075;
+  const tideFlow = tide.approaching ? pressure * 0.72 : -pressure * 0.24;
+  const maxSpeed = (keys.ShiftLeft || keys.ShiftRight) ? 2.65 : 1.95;
   const targetX = wish.x * maxSpeed + currentX;
   const targetZ = wish.z * maxSpeed + currentZ + tideFlow;
-  const response = wish.lengthSq() > 0 ? 3.7 : 1.35;
+  const waterDragResponse = 3.2 / (1.0 + waterDepth * 0.8);
+  const response = wish.lengthSq() > 0 ? waterDragResponse * 1.15 : waterDragResponse * 0.82;
   velocity.x += (targetX - velocity.x) * Math.min(1, response * dt);
   velocity.z += (targetZ - velocity.z) * Math.min(1, response * dt);
 
   const horizontalSpeed = Math.hypot(velocity.x, velocity.z);
-  if (horizontalSpeed > 11.5) {
-    velocity.multiplyScalar(11.5 / horizontalSpeed);
-  }
+  const speedLimit = maxSpeed + 0.9;
+  if (horizontalSpeed > speedLimit) velocity.multiplyScalar(speedLimit / horizontalSpeed);
   player.position.x += velocity.x * dt;
   player.position.z += velocity.z * dt;
 
-  const diving = !!(keys.ControlLeft || keys.ControlRight);
-  const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
-  const targetY = surfaceY - 1.16 - (diving ? 1.28 : 0);
-  const buoyancyAcceleration = (targetY - player.position.y) * 9.4 - verticalVelocity * 4.25;
-  verticalVelocity += buoyancyAcceleration * dt;
+  // Boots remain in contact with the seabed; only the suit's centre of mass bobs.
+  player.position.y = GROUND_Y + 0.06;
+  const lowView = !!(keys.ControlLeft || keys.ControlRight);
   if (spaceStrokeRequested) {
-    verticalVelocity += diving ? 3.25 : 2.05;
+    velocity.x += forward.x * 0.9;
+    velocity.z += forward.z * 0.9;
     spaceStrokeRequested = false;
-    spawnSpray(player.position.x, player.position.z, 16);
+    spawnSpray(player.position.x, player.position.z, 18);
+    spawnRipple();
   }
-  verticalVelocity = THREE.MathUtils.clamp(verticalVelocity, -4.8, 5.8);
-  player.position.y += verticalVelocity * dt;
 
-  if (horizontalSpeed > 0.16 || diving) {
-    if (horizontalSpeed > 0.16) {
-      const desiredYaw = Math.atan2(-velocity.x, -velocity.z);
-      let difference = desiredYaw - explorer.root.rotation.y;
-      difference = Math.atan2(Math.sin(difference), Math.cos(difference));
-      explorer.root.rotation.y += difference * Math.min(1, dt * 7.5);
-      walkPhase += dt * (2.3 + horizontalSpeed * 1.8);
-    } else {
-      walkPhase += dt * 2.1;
-    }
-    if (diving) {
-      explorer.legPivots[0].rotation.x = Math.sin(walkPhase * 0.82) * 0.35;
-      explorer.legPivots[1].rotation.x = -Math.sin(walkPhase * 0.82) * 0.35;
-      explorer.armPivots[0].rotation.x = -0.28 + Math.sin(walkPhase) * 0.55;
-      explorer.armPivots[1].rotation.x = -0.28 - Math.sin(walkPhase) * 0.55;
-    } else {
-      explorer.legPivots[0].rotation.x = Math.sin(walkPhase) * 0.48;
-      explorer.legPivots[1].rotation.x = -Math.sin(walkPhase) * 0.48;
-      explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.30;
-      explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.30;
-    }
-    explorer.root.position.y = Math.sin(walkPhase * 2) * (diving ? 0.065 : 0.045);
+  if (horizontalSpeed > 0.12) {
+    const desiredYaw = Math.atan2(-velocity.x, -velocity.z);
+    let difference = desiredYaw - explorer.root.rotation.y;
+    difference = Math.atan2(Math.sin(difference), Math.cos(difference));
+    explorer.root.rotation.y += difference * Math.min(1, dt * 6.8);
+    walkPhase += dt * (2.2 + horizontalSpeed * 2.5);
+    explorer.legPivots[0].rotation.x = Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
+    explorer.legPivots[1].rotation.x = -Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
+    explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.22;
+    explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.22;
     splashTimer += dt;
     rippleTimer += dt;
-    if (horizontalSpeed > 0.16 && splashTimer > 0.17) {
-      spawnSpray(player.position.x, player.position.z, diving ? 7 : 5);
+    if (splashTimer > (horizontalSpeed > 2.3 ? 0.23 : 0.34)) {
+      spawnSpray(player.position.x, player.position.z, horizontalSpeed > 2.3 ? 8 : 5);
       splashTimer = 0;
     }
-    if (rippleTimer > (diving ? 0.62 : 0.42)) {
+    if (rippleTimer > 0.46) {
       spawnRipple();
       rippleTimer = 0;
     }
   } else {
-    explorer.legPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 4));
-    explorer.armPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 4));
-    explorer.root.position.y = Math.sin(simulationTime * 1.15) * 0.018;
+    explorer.legPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 3.8));
+    explorer.armPivots.forEach(p => p.rotation.x *= Math.max(0, 1 - dt * 3.8));
     splashTimer = 0;
     rippleTimer = 0;
   }
-  explorer.root.rotation.x += ((diving ? -0.13 : 0) - explorer.root.rotation.x) * Math.min(1, dt * 3.0);
+
+  const waveBob = THREE.MathUtils.clamp((surfaceY - WATER_LEVEL) * 0.18, -0.035, 0.035);
+  const gaitBob = horizontalSpeed > 0.12 ? Math.abs(Math.sin(walkPhase * 2)) * 0.035 : 0;
+  explorer.root.position.y = waveBob + gaitBob;
+  explorer.root.rotation.x += ((lowView ? -0.10 : 0) - explorer.root.rotation.x) * Math.min(1, dt * 2.5);
+  explorer.root.rotation.z += (THREE.MathUtils.clamp(-velocity.x * 0.025, -0.08, 0.08) - explorer.root.rotation.z) * Math.min(1, dt * 3.0);
   return horizontalSpeed;
 }
 
@@ -627,7 +717,7 @@ const cameraTarget=new THREE.Vector3();
 const cameraDesired=new THREE.Vector3();
 function updateCamera(dt) {
   if (firstPerson) {
-    const eyeY = player.position.y + 1.42;
+    const eyeY = player.position.y + ((keys.ControlLeft || keys.ControlRight) ? 0.30 : 1.42);
     cameraDesired.set(player.position.x, eyeY, player.position.z);
     const lookDistance = 55;
     cameraTarget.set(
@@ -661,7 +751,11 @@ function updateScene(dt, speed) {
   tideCenterX = player.position.x;
   tideAmplitude = 1;
 
-  ocean.position.set(player.position.x, 0, player.position.z);
+  ocean.position.set(player.position.x, WATER_LEVEL, player.position.z);
+  seabed.mesh.position.set(player.position.x, GROUND_Y, player.position.z);
+  const seabedTileWorld = WATER_SIZE / 52;
+  seabed.colorTexture.offset.set(player.position.x / seabedTileWorld, player.position.z / seabedTileWorld);
+  seabed.heightTexture.offset.copy(seabed.colorTexture.offset);
   ocean.material.uniforms.uOrigin.value.set(player.position.x, player.position.z);
   ocean.material.uniforms.uTideZ.value = tideFrontZ;
   ocean.material.uniforms.uTideX.value = tideCenterX;
@@ -695,10 +789,11 @@ function updateScene(dt, speed) {
   telemetryTimer += dt;
   if (telemetryTimer > 0.12) {
     speedValue.textContent = speed.toFixed(1) + " m/s";
-    waveValue.textContent = (surfaceY >= 0 ? "+" : "") + surfaceY.toFixed(2) + " m";
+    const depthAboveSeabed = surfaceY - GROUND_Y;
+    waveValue.textContent = depthAboveSeabed.toFixed(2) + " m";
     tideValue.textContent = tide.approaching ? "ACERCÁNDOSE" : "RETIRÁNDOSE";
     tideDistanceValue.textContent = Math.round(tide.distance) + " m";
-    stateValue.textContent = (keys.ControlLeft || keys.ControlRight) ? "SUMERGIDO" : "VADEANDO";
+    stateValue.textContent = (keys.ControlLeft || keys.ControlRight) ? "VISTA SUBMARINA" : "AGUA A LAS RODILLAS";
     const minutes = Math.floor(simulationTime / 60).toString().padStart(2, "0");
     const seconds = Math.floor(simulationTime % 60).toString().padStart(2, "0");
     clockLabel.textContent = "T+ " + minutes + ":" + seconds;
@@ -801,7 +896,7 @@ function animate() {
   renderer.render(scene,camera);
   if(firstRender){firstRender=false;document.body.dataset.ready="true";}
 }
-player.position.set(0,GROUND_Y,0);
+player.position.set(0,GROUND_Y+0.06,0);
 explorer.root.rotation.y=0;
 updateCamera(0.016);
 animate();
