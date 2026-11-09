@@ -16,7 +16,7 @@ const clockLabel = document.getElementById("clockLabel");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
-const WATER_DEPTH_MEAN = 1.10;
+const WATER_DEPTH_MEAN = 1.23;
 const WATER_LEVEL = GROUND_Y + WATER_DEPTH_MEAN;
 const WATER_SIZE = 3000;
 const CAMERA_GROUND_CLEARANCE = 0.24;
@@ -86,7 +86,7 @@ function tideCycleAt(time) {
 const OCEAN_GRAVITY = 9.81;
 const OCEAN_DEPTH = WATER_DEPTH_MEAN;
 const OCEAN_WIND_SPEED = 8.0;
-const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.16;
+const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.28;
 const OCEAN_WAVES_COUNT = 10;
 const OCEAN_WAVE_BINS = [
   { wavelength: 60, angle: -8, phase: 0.4 },
@@ -142,7 +142,7 @@ function waveHeight(x, z, time) {
   const trailingSwell = 0.10 * Math.exp(-Math.pow((front + 105) / 85, 2)) *
     Math.sin(front * 0.024 - time * 0.55);
   height += tideAmplitude * lateral * (mainSwell + trailingSwell);
-  const verticalLimit = 0.045;
+  const verticalLimit = 0.11;
   const boundedHeight = verticalLimit * Math.tanh(height / verticalLimit);
   return WATER_LEVEL + boundedHeight;
 }
@@ -262,9 +262,9 @@ function createOcean() {
     "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
     "dYdx+=lateralDx*tideShape;",
     "dYdz+=lateral*tideSlope;",
-    "float softHeight=tanh(height/0.045);",
+    "float softHeight=tanh(height/0.11);",
     "float verticalScale=1.0-softHeight*softHeight;",
-    "height=0.045*softHeight;",
+    "height=0.11*softHeight;",
     "dYdx*=verticalScale;",
     "dYdz*=verticalScale;",
     "tangentX=vec3(dXdx,dYdx,dZdx);",
