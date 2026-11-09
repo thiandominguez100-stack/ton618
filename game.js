@@ -235,13 +235,17 @@ function createTidalWall(height, width, zOffset, opacity, scale) {
   geometry.translate(0, height * 0.5, 0);
   const vertexShader = [
     "uniform float uTime;",
+    "uniform float uWidth;",
     "varying vec3 vPos;",
     "void main(){",
     "vec3 p=position;",
+    "float envelope=pow(max(0.0,1.0-abs(p.x)/(uWidth*0.5)),0.46);",
+    "float swell=0.84+0.16*sin(p.x*0.004+uTime*0.035);",
+    "p.y*=envelope*swell;",
     "float crest=smoothstep(0.0,42.0,p.y);",
-    "p.y+=sin(p.x*0.0055+uTime*0.045)*13.0*crest;",
-    "p.y+=sin(p.x*0.015-uTime*0.08)*3.5*crest;",
-    "p.z+=(sin(p.x*0.008+uTime*0.052)+0.35*sin(p.y*0.032-uTime*0.12))*13.0*crest;",
+    "p.y+=sin(p.x*0.0055+uTime*0.045)*13.0*crest*envelope;",
+    "p.y+=sin(p.x*0.015-uTime*0.08)*3.5*crest*envelope;",
+    "p.z+=(sin(p.x*0.008+uTime*0.052)+0.35*sin(p.y*0.032-uTime*0.12))*13.0*crest*envelope;",
     "vPos=p;",
     "gl_Position=projectionMatrix*modelViewMatrix*vec4(p,1.0);",
     "}"
@@ -267,7 +271,7 @@ function createTidalWall(height, width, zOffset, opacity, scale) {
     "}"
   ].join("\n");
   const material = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uOpacity: { value: opacity } },
+    uniforms: { uTime: { value: 0 }, uOpacity: { value: opacity }, uWidth: { value: width } },
     vertexShader,
     fragmentShader,
     transparent: opacity < 1,
