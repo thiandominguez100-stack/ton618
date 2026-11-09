@@ -32,6 +32,7 @@ const signalNav = document.getElementById("signalNav");
 const signalNavArrow = document.getElementById("signalNavArrow");
 const signalNavTitle = document.getElementById("signalNavTitle");
 const signalNavDistance = document.getElementById("signalNavDistance");
+const millerApproach = document.getElementById("millerApproach");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
@@ -1243,6 +1244,268 @@ function makeExplorer() {
 }
 const explorer = makeExplorer();
 
+/* MILLER M-01 — exterior vessel and floating approach platform.
+   Local dimensions are authored around the astronaut scale; the structure
+   follows the local ocean surface without changing the seabed or water level. */
+const MILLER_SITE_POSITION = new THREE.Vector3(12, 0, -34);
+
+function createMillerSite() {
+  const root = new THREE.Group();
+  root.position.set(MILLER_SITE_POSITION.x, 0, MILLER_SITE_POSITION.z);
+  scene.add(root);
+
+  const materials = {
+    hull: new THREE.MeshPhysicalMaterial({color:0xdce4e1,metalness:0.24,roughness:0.34,clearcoat:0.38,clearcoatRoughness:0.24}),
+    hullLight: new THREE.MeshStandardMaterial({color:0xf0f3ed,metalness:0.12,roughness:0.48}),
+    underside: new THREE.MeshStandardMaterial({color:0x263943,metalness:0.66,roughness:0.38}),
+    orange: new THREE.MeshStandardMaterial({color:0xc97943,metalness:0.34,roughness:0.42}),
+    orangeLight: new THREE.MeshStandardMaterial({color:0xe49b58,metalness:0.22,roughness:0.45}),
+    metal: new THREE.MeshStandardMaterial({color:0x71858a,metalness:0.82,roughness:0.28}),
+    darkMetal: new THREE.MeshStandardMaterial({color:0x152a35,metalness:0.72,roughness:0.36}),
+    rubber: new THREE.MeshStandardMaterial({color:0x101b22,metalness:0.04,roughness:0.88}),
+    glass: new THREE.MeshPhysicalMaterial({color:0x568b9c,metalness:0.26,roughness:0.075,transparent:true,opacity:0.64,clearcoat:1,clearcoatRoughness:0.035,side:THREE.DoubleSide}),
+    glassDark: new THREE.MeshPhysicalMaterial({color:0x102b3a,metalness:0.34,roughness:0.12,transparent:true,opacity:0.88,clearcoat:1,clearcoatRoughness:0.045}),
+    deck: new THREE.MeshStandardMaterial({color:0x31444b,metalness:0.62,roughness:0.68}),
+    deckLight: new THREE.MeshStandardMaterial({color:0x89999a,metalness:0.52,roughness:0.62}),
+    solar: new THREE.MeshStandardMaterial({color:0x102b42,metalness:0.72,roughness:0.23}),
+    lightCyan: new THREE.MeshStandardMaterial({color:0x8beaff,emissive:0x58c9ee,emissiveIntensity:1.3,metalness:0.12,roughness:0.24}),
+    lightAmber: new THREE.MeshStandardMaterial({color:0xffc17a,emissive:0xff8c3b,emissiveIntensity:1.1,metalness:0.08,roughness:0.28})
+  };
+  const animatedLights=[];
+  const addBox=(parent,geometry,material,position,rotation=null)=>{
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.position.set(position[0],position[1],position[2]);
+    if(rotation)mesh.rotation.set(rotation[0],rotation[1],rotation[2]);
+    mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
+  };
+  const addCylinder=(parent,rTop,rBottom,height,material,position,rotation=[0,0,0],segments=20)=>{
+    const mesh=new THREE.Mesh(new THREE.CylinderGeometry(rTop,rBottom,height,segments),material);
+    mesh.position.set(position[0],position[1],position[2]);
+    mesh.rotation.set(rotation[0],rotation[1],rotation[2]);
+    mesh.castShadow=true;mesh.receiveShadow=true;parent.add(mesh);return mesh;
+  };
+  const addLight=(parent,position,material,scale=1,phase=0)=>{
+    const mesh=new THREE.Mesh(new THREE.SphereGeometry(0.10,12,10),material);
+    mesh.position.set(position[0],position[1],position[2]);
+    mesh.scale.setScalar(scale);parent.add(mesh);
+    animatedLights.push({material,phase,base:material.emissiveIntensity});
+    return mesh;
+  };
+  const makeLabelTexture=(title,subtitle)=>{
+    const canvas=document.createElement("canvas");canvas.width=1024;canvas.height=256;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#142833";ctx.fillRect(0,0,1024,256);
+    ctx.fillStyle="#c97943";ctx.fillRect(0,0,16,256);
+    ctx.fillStyle="#e8f0ed";ctx.font="700 64px Arial";ctx.fillText(title,54,112);
+    ctx.fillStyle="#9ac5cf";ctx.font="500 28px Arial";ctx.fillText(subtitle,58,174);
+    ctx.strokeStyle="rgba(180,225,232,.35)";ctx.lineWidth=3;ctx.strokeRect(20,18,984,220);
+    const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);return texture;
+  };
+
+  // Floating service platform: twin sealed pontoons, cross-bracing and a
+  // textured steel deck remain visibly above the mean water line.
+  const platform=new THREE.Group();root.add(platform);
+  for(const side of [-1,1]){
+    addCylinder(platform,0.76,0.88,28,materials.underside,[side*10.15,-0.12,0],[Math.PI/2,0,0],28);
+    for(const end of [-1,1]){
+      const cap=new THREE.Mesh(new THREE.SphereGeometry(0.86,20,14),materials.underside);
+      cap.position.set(side*10.15,-0.12,end*13.65);cap.scale.set(1,0.84,0.88);platform.add(cap);
+    }
+    addBox(platform,new THREE.BoxGeometry(0.24,0.38,27.2),materials.metal,[side*8.35,0.32,0]);
+    for(let z=-11;z<=11;z+=5.5){
+      addBox(platform,new THREE.BoxGeometry(20.0,0.22,0.22),materials.underside,[0,0.22,z]);
+    }
+  }
+  addBox(platform,new THREE.BoxGeometry(22.4,0.52,29.5),materials.deck,[0,0.60,0]);
+  addBox(platform,new THREE.BoxGeometry(21.7,0.12,28.8),materials.deckLight,[0,0.91,0]);
+  for(let z=-12.8;z<=12.8;z+=3.2){
+    addBox(platform,new THREE.BoxGeometry(20.9,0.018,0.035),materials.darkMetal,[0,0.978,z]);
+  }
+  for(const side of [-1,1]){
+    addBox(platform,new THREE.BoxGeometry(0.14,0.026,27.2),materials.orange,[side*10.65,0.984,0]);
+    addBox(platform,new THREE.BoxGeometry(0.10,0.12,28.0),materials.metal,[side*11.0,0.94,0]);
+    for(let z=-12;z<=12;z+=4){
+      addCylinder(platform,0.085,0.085,0.26,materials.metal,[side*10.95,1.08,z],[0,0,0],12);
+      addLight(platform,[side*10.95,1.25,z],(z%8===0)?materials.lightAmber:materials.lightCyan,0.68,z*0.18);
+    }
+  }
+  const padRing=new THREE.Mesh(new THREE.TorusGeometry(7.2,0.055,8,96),materials.orangeLight);
+  padRing.rotation.x=Math.PI/2;padRing.position.set(0,0.995,-1.1);platform.add(padRing);
+  for(const side of [-1,1]){
+    addBox(platform,new THREE.BoxGeometry(0.55,0.026,5.2),materials.orange,[side*8.35,0.995,-1.1]);
+    for(let n=0;n<5;n++){
+      addBox(platform,new THREE.BoxGeometry(0.62,0.028,0.15),materials.hullLight,[side*8.35,1.012,-3.0+n*0.78]);
+    }
+  }
+  for(const x of [-10.45,10.45]){
+    for(const z of [-13.5,13.5]){
+      addBox(platform,new THREE.BoxGeometry(0.42,0.7,0.42),materials.darkMetal,[x,1.28,z]);
+      addBox(platform,new THREE.BoxGeometry(0.50,0.10,0.50),materials.orange,[x,1.54,z]);
+      addLight(platform,[x,1.72,z],materials.lightAmber,0.82,x+z);
+    }
+  }
+
+  // Boarding gangway, sloped toward the accessible edge of the platform.
+  const gangway=new THREE.Group();
+  gangway.position.set(-9.0,0.57,21.1);
+  gangway.rotation.y=-0.615;
+  gangway.rotation.x=0.037;
+  platform.add(gangway);
+  const gangwayLength=20.5;
+  addBox(gangway,new THREE.BoxGeometry(2.9,0.28,gangwayLength),materials.deck,[0,0,0]);
+  addBox(gangway,new THREE.BoxGeometry(2.64,0.045,gangwayLength-0.35),materials.deckLight,[0,0.16,0]);
+  for(let z=-9.4;z<=9.4;z+=0.85){
+    addBox(gangway,new THREE.BoxGeometry(2.55,0.045,0.11),materials.darkMetal,[0,0.195,z]);
+  }
+  for(const side of [-1,1]){
+    addBox(gangway,new THREE.BoxGeometry(0.09,0.62,gangwayLength),materials.metal,[side*1.36,0.39,0]);
+    addBox(gangway,new THREE.BoxGeometry(0.09,0.08,gangwayLength),materials.orange,[side*1.36,0.72,0]);
+    for(let z=-9;z<=9;z+=3){
+      addBox(gangway,new THREE.BoxGeometry(0.12,0.58,0.12),materials.darkMetal,[side*1.36,0.38,z]);
+      addLight(gangway,[side*1.37,0.83,z],materials.lightCyan,0.50,z+side);
+    }
+  }
+  for(const z of [-7,-2,3,8]){
+    addCylinder(gangway,0.07,0.12,0.75,materials.underside,[0,-0.46,z],[0,0,0],12);
+    addBox(gangway,new THREE.BoxGeometry(3.0,0.10,0.18),materials.metal,[0,-0.8,z]);
+  }
+
+  // MILLER M-01 exploration craft.
+  const ship=new THREE.Group();
+  ship.position.set(0,1.03,-1.0);
+  platform.add(ship);
+  const belly=new THREE.Mesh(new THREE.CapsuleGeometry(1.56,7.9,8,24),materials.underside);
+  belly.rotation.x=Math.PI/2;belly.scale.set(1.31,0.43,1.16);belly.position.set(0,1.97,0.1);ship.add(belly);
+  const mainHull=new THREE.Mesh(new THREE.CapsuleGeometry(1.74,8.5,10,32),materials.hull);
+  mainHull.rotation.x=Math.PI/2;mainHull.scale.set(1.28,0.78,1.26);mainHull.position.set(0,2.25,0);
+  mainHull.castShadow=true;mainHull.receiveShadow=true;ship.add(mainHull);
+  addBox(ship,new THREE.BoxGeometry(1.85,0.34,7.9),materials.hullLight,[0,3.18,0.55]);
+  addBox(ship,new THREE.BoxGeometry(1.18,0.14,5.1),materials.orange,[0,3.38,1.05]);
+  addBox(ship,new THREE.BoxGeometry(0.42,0.18,3.4),materials.darkMetal,[0,3.48,1.45]);
+
+  // Panoramic forward canopy with a structural lower rim and center mullion.
+  const canopy=new THREE.Mesh(new THREE.SphereGeometry(1,40,28),materials.glass);
+  canopy.scale.set(1.76,0.78,2.05);canopy.position.set(0,3.05,-4.05);ship.add(canopy);
+  const canopyBase=new THREE.Mesh(new THREE.TorusGeometry(1.0,0.075,10,64),materials.metal);
+  canopyBase.scale.set(1.72,1.0,0.94);canopyBase.position.set(0,2.82,-4.05);ship.add(canopyBase);
+  addBox(ship,new THREE.BoxGeometry(0.09,0.95,3.55),materials.metal,[0,3.22,-4.02],[0.08,0,0]);
+  for(const side of [-1,1]){
+    addBox(ship,new THREE.BoxGeometry(3.65,0.24,4.5),materials.hull,[side*3.62,2.28,0.55],[0,side*0.035,0]);
+    addBox(ship,new THREE.BoxGeometry(2.2,0.075,4.05),materials.solar,[side*4.08,2.445,0.65]);
+    for(let row=0;row<6;row++){
+      addBox(ship,new THREE.BoxGeometry(2.08,0.012,0.025),materials.lightCyan,[side*4.08,2.49,-1.05+row*0.68]);
+    }
+    addBox(ship,new THREE.BoxGeometry(0.22,0.16,4.8),materials.orange,[side*5.48,2.28,0.55]);
+    addBox(ship,new THREE.BoxGeometry(0.22,1.05,2.8),materials.underside,[side*1.68,2.85,5.65],[0,side*0.10,side*0.12]);
+    addBox(ship,new THREE.BoxGeometry(0.24,0.18,0.82),materials.orange,[side*1.68,3.32,6.25]);
+  }
+  const enginePositions=[[-4.05,-4.6],[4.05,-4.6],[-4.05,4.9],[4.05,4.9]];
+  for(let i=0;i<enginePositions.length;i++){
+    const [x,z]=enginePositions[i];
+    const nacelle=new THREE.Group();nacelle.position.set(x,1.66,z);ship.add(nacelle);
+    const shroud=new THREE.Mesh(new THREE.CylinderGeometry(0.57,0.78,1.28,28,1),materials.hullLight);
+    shroud.castShadow=true;nacelle.add(shroud);
+    const topRing=new THREE.Mesh(new THREE.TorusGeometry(0.60,0.075,8,32),materials.orange);
+    topRing.position.y=0.62;nacelle.add(topRing);
+    const nozzle=new THREE.Mesh(new THREE.CylinderGeometry(0.50,0.62,0.20,28),materials.darkMetal);
+    nozzle.position.y=-0.72;nacelle.add(nozzle);
+    const inner=new THREE.Mesh(new THREE.CylinderGeometry(0.39,0.47,0.06,28),materials.lightCyan);
+    inner.position.y=-0.84;nacelle.add(inner);
+    for(let vane=0;vane<6;vane++){
+      const angle=vane*Math.PI/3;
+      addBox(nacelle,new THREE.BoxGeometry(0.09,0.28,0.36),materials.metal,
+        [Math.cos(angle)*0.37,-0.48,Math.sin(angle)*0.37],[0,angle,0]);
+    }
+    addLight(nacelle,[0,0.78,0],materials.lightAmber,0.62,i*1.7);
+  }
+  for(const side of [-1,1]){
+    const thruster=new THREE.Group();
+    thruster.position.set(side*1.25,2.15,6.6);thruster.rotation.x=Math.PI/2;ship.add(thruster);
+    const barrel=new THREE.Mesh(new THREE.CylinderGeometry(0.45,0.62,1.15,24),materials.underside);
+    thruster.add(barrel);
+    const rim=new THREE.Mesh(new THREE.TorusGeometry(0.48,0.07,8,28),materials.orange);
+    rim.position.y=0.58;thruster.add(rim);
+    const mouth=new THREE.Mesh(new THREE.CircleGeometry(0.40,28),materials.darkMetal);
+    mouth.position.y=0.60;thruster.add(mouth);
+    for(let n=0;n<3;n++){
+      addBox(thruster,new THREE.BoxGeometry(0.08,0.025,0.48),materials.metal,[0,-0.1+n*0.12,0],[0,0,n*0.11]);
+    }
+  }
+  for(const side of [-1,1]){
+    for(const frontRear of [-1,1]){
+      const x=side*2.15,z=frontRear*5.0;
+      addCylinder(ship,0.105,0.145,0.92,materials.metal,[x,0.76,z],[0,0,side*0.18],14);
+      addCylinder(ship,0.055,0.075,0.28,materials.orange,[x,1.10,z],[0,0,side*0.18],12);
+      addBox(ship,new THREE.BoxGeometry(1.05,0.17,0.62),materials.rubber,[x,0.26,z]);
+      addBox(ship,new THREE.BoxGeometry(0.78,0.065,0.46),materials.orange,[x,0.17,z]);
+    }
+  }
+  for(const side of [-1,1]){
+    addBox(ship,new THREE.BoxGeometry(0.045,0.12,5.4),materials.orange,[side*2.55,2.15,0.45]);
+    for(let n=0;n<7;n++){
+      addBox(ship,new THREE.BoxGeometry(0.055,0.028,0.34),materials.metal,[side*2.60,2.28,-2.15+n*0.86]);
+    }
+    addBox(ship,new THREE.BoxGeometry(0.11,0.56,1.34),materials.darkMetal,[side*2.58,2.00,1.6]);
+    addBox(ship,new THREE.BoxGeometry(0.035,0.32,0.82),materials.orangeLight,[side*2.65,2.00,1.6]);
+    for(let bolt=0;bolt<5;bolt++){
+      const rivet=new THREE.Mesh(new THREE.SphereGeometry(0.035,8,8),materials.metal);
+      rivet.position.set(side*2.68,2.36,-2.1+bolt*1.05);ship.add(rivet);
+    }
+  }
+  addBox(ship,new THREE.BoxGeometry(0.10,1.55,1.36),materials.darkMetal,[-2.70,2.12,1.35]);
+  addBox(ship,new THREE.BoxGeometry(0.055,1.30,1.12),materials.hullLight,[-2.77,2.12,1.35]);
+  addBox(ship,new THREE.BoxGeometry(0.07,0.16,0.78),materials.orange,[-2.82,2.60,1.35]);
+  for(const z of [0.90,1.80]){
+    addCylinder(ship,0.065,0.065,1.55,materials.metal,[-3.08,1.12,z],[0,0,0],12);
+  }
+  for(let rung=0;rung<6;rung++){
+    addCylinder(ship,0.04,0.04,0.92,materials.orange,[-3.08,0.48+rung*0.22,1.35],[Math.PI/2,0,0],10);
+  }
+  const hullLabel=new THREE.Mesh(new THREE.PlaneGeometry(2.55,0.58),
+    new THREE.MeshBasicMaterial({map:makeLabelTexture("MILLER M-01","OCEAN EXPLORATION VESSEL")}));
+  hullLabel.position.set(0,2.61,7.12);hullLabel.rotation.y=Math.PI;ship.add(hullLabel);
+  addLight(ship,[0,3.55,1.25],materials.lightCyan,0.78,0.4);
+  addLight(ship,[0,2.42,-7.25],materials.lightAmber,0.72,2.3);
+
+  const sign=new THREE.Group();sign.position.set(-15.0,0.95,29.2);platform.add(sign);
+  addBox(sign,new THREE.BoxGeometry(2.8,1.65,0.16),materials.darkMetal,[0,0.82,0]);
+  addBox(sign,new THREE.BoxGeometry(2.65,1.48,0.05),materials.hull,[0,0.82,-0.10]);
+  const signFace=new THREE.Mesh(new THREE.PlaneGeometry(2.5,0.62),
+    new THREE.MeshBasicMaterial({map:makeLabelTexture("MILLER M-01","PUNTO DE EMBARQUE"),side:THREE.DoubleSide}));
+  signFace.position.set(0,0.94,-0.14);sign.add(signFace);
+  for(const side of [-1,1]){
+    addCylinder(sign,0.07,0.10,1.5,materials.metal,[side*1.05,-0.25,0],[0,0,0],12);
+    addLight(sign,[side*1.05,1.68,0],materials.lightCyan,0.78,side);
+  }
+  return {root,platform,ship,lights:animatedLights};
+}
+
+const millerSite = createMillerSite();
+
+function updateMillerSite(dt) {
+  const x=MILLER_SITE_POSITION.x,z=MILLER_SITE_POSITION.z;
+  const center=waveHeight(x,z,simulationTime);
+  const slopeX=waveHeight(x+2,z,simulationTime)-waveHeight(x-2,z,simulationTime);
+  const slopeZ=waveHeight(x,z+2,simulationTime)-waveHeight(x,z-2,simulationTime);
+  millerSite.root.position.y=center-WATER_LEVEL;
+  millerSite.root.rotation.z=THREE.MathUtils.clamp(-slopeX*0.018,-0.018,0.018);
+  millerSite.root.rotation.x=THREE.MathUtils.clamp(slopeZ*0.018,-0.018,0.018);
+  for(const light of millerSite.lights){
+    light.material.emissiveIntensity=light.base*(0.88+0.12*Math.sin(simulationTime*1.7+light.phase));
+  }
+  const distance=Math.hypot(player.position.x-x,player.position.z-z);
+  if(distance<92){
+    millerApproach.classList.add("visible");
+    millerApproach.querySelector(".miller-approach-distance").textContent=Math.round(distance)+" m";
+    millerApproach.querySelector(".miller-approach-detail").textContent=
+      distance<22?"PASARELA DE EMBARQUE A LA VISTA":"SIGUE LAS LUCES DEL MUELLE";
+  }else{
+    millerApproach.classList.remove("visible");
+  }
+}
+
+
 const EXPEDITION_STORAGE_KEY = "miller-expedition-log-v1";
 const expeditionRecords = [
   {
@@ -1965,6 +2228,7 @@ function updateCamera(dt) {
 
 function updateScene(dt, speed) {
   updateWorldWeather();
+  updateMillerSite(dt);
   const tide = tideCycleAt(simulationTime);
   tideFrontZ = player.position.z - tide.distance;
   tideCenterX = player.position.x;
