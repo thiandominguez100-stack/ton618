@@ -1979,6 +1979,7 @@ function updateScene(dt, speed) {
   const seabedTileWorld = WATER_SIZE / 52;
   seabed.colorTexture.offset.set(player.position.x / seabedTileWorld, player.position.z / seabedTileWorld);
   seabed.heightTexture.offset.copy(seabed.colorTexture.offset);
+  seabed.roughnessTexture.offset.copy(seabed.colorTexture.offset);
   ocean.material.uniforms.uOrigin.value.set(player.position.x, player.position.z);
   ocean.material.uniforms.uTideZ.value = tideFrontZ;
   ocean.material.uniforms.uTideX.value = tideCenterX;
