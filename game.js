@@ -14,6 +14,20 @@ const stateValue = document.getElementById("stateValue");
 const underwaterOverlay = document.getElementById("underwaterOverlay");
 const clockLabel = document.getElementById("clockLabel");
 const soundToggle = document.getElementById("soundToggle");
+const journalToggle = document.getElementById("journalToggle");
+const journalOverlay = document.getElementById("journal");
+const journalClose = document.getElementById("journalClose");
+const journalList = document.getElementById("journalList");
+const journalProgress = document.getElementById("journalProgress");
+const scanPrompt = document.getElementById("scanPrompt");
+const scanTitle = document.getElementById("scanTitle");
+const scanDetail = document.getElementById("scanDetail");
+const scanAction = document.getElementById("scanAction");
+const scanProgressWrap = document.getElementById("scanProgressWrap");
+const scanProgressFill = document.getElementById("scanProgressFill");
+const scanToast = document.getElementById("scanToast");
+const scanToastTitle = document.getElementById("scanToastTitle");
+const scanToastDetail = document.getElementById("scanToastDetail");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
@@ -53,6 +67,7 @@ scene.add(fillLight);
 let simulationTime = 0;
 let started = false;
 let paused = false;
+let journalOpen = false;
 let pointerLocked = false;
 let hadPointerLock = false;
 let dragging = false;
@@ -881,6 +896,285 @@ function makeExplorer() {
 }
 const explorer = makeExplorer();
 
+const EXPEDITION_STORAGE_KEY = "miller-expedition-log-v1";
+const expeditionRecords = [
+  {
+    id:"signal-a01",
+    code:"BALIZA A-01",
+    title:"La primera señal",
+    region:"Sector de marea norte",
+    detail:"La baliza confirma una corriente dominante que cruza el océano de oeste a este. La señal lleva mucho tiempo activa, esperando a alguien que la escuche.",
+    position:new THREE.Vector3(-24,0,-76),
+    color:0x9deeff,
+    phase:0.2
+  },
+  {
+    id:"foam-garden",
+    code:"ANOMALÍA DE ESPUMA",
+    title:"Jardín de espuma",
+    region:"Cuenca de espuma",
+    detail:"Las líneas de espuma convergen sobre una fractura del lecho. El patrón se repite con cada oleaje, como si el propio océano estuviera respirando.",
+    position:new THREE.Vector3(112,0,-142),
+    color:0xe7c58d,
+    phase:1.7
+  },
+  {
+    id:"gravity-echo",
+    code:"ECO GRAVITACIONAL",
+    title:"Eco de Gargantúa",
+    region:"Meridiano exterior",
+    detail:"Los instrumentos registran una variación gravitatoria lenta y periódica. Es demasiado tenue para sentirse, pero aparece una y otra vez en las mediciones.",
+    position:new THREE.Vector3(-166,0,-42),
+    color:0x9bc9ff,
+    phase:3.1
+  },
+  {
+    id:"deep-resonance",
+    code:"RESONANCIA ABISAL",
+    title:"Canto del fondo",
+    region:"Límite de la plataforma",
+    detail:"Una vibración grave llega desde una zona más profunda. No hay una fuente visible; solo una frecuencia que viaja por el agua y desaparece bajo el horizonte.",
+    position:new THREE.Vector3(138,0,176),
+    color:0x9de1c7,
+    phase:4.4
+  }
+];
+
+const discoveredIds = new Set();
+try {
+  const savedIds = JSON.parse(localStorage.getItem(EXPEDITION_STORAGE_KEY) || "[]");
+  if (Array.isArray(savedIds)) {
+    for (const id of savedIds) {
+      if (expeditionRecords.some(record => record.id === id)) discoveredIds.add(id);
+    }
+  }
+} catch (error) {
+  console.info("El diario de expedición comenzará vacío en este navegador.", error);
+}
+
+const expeditionState = { nearest:null, active:null, progress:0 };
+let scanToastTimer = 0;
+
+function createExpeditionBeacon(record) {
+  const group = new THREE.Group();
+  const darkMetal = new THREE.MeshStandardMaterial({ color:0x203b48, metalness:0.72, roughness:0.32 });
+  const safety = new THREE.MeshStandardMaterial({ color:0xc9824f, metalness:0.42, roughness:0.4 });
+  const panelMat = new THREE.MeshStandardMaterial({ color:0x18313e, metalness:0.58, roughness:0.38 });
+  const glowMat = new THREE.MeshStandardMaterial({
+    color:record.color,
+    emissive:record.color,
+    emissiveIntensity:1.15,
+    metalness:0.18,
+    roughness:0.2
+  });
+  const beamMat = new THREE.MeshBasicMaterial({
+    color:record.color,
+    transparent:true,
+    opacity:0.095,
+    depthWrite:false,
+    side:THREE.DoubleSide
+  });
+
+  const float = new THREE.Mesh(new THREE.CylinderGeometry(0.88,0.98,0.34,24), safety);
+  float.position.y = -0.13;
+  group.add(float);
+
+  const floatBand = new THREE.Mesh(new THREE.TorusGeometry(0.84,0.065,8,48), darkMetal);
+  floatBand.rotation.x = Math.PI / 2;
+  floatBand.position.y = 0.015;
+  group.add(floatBand);
+
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.095,0.14,1.55,12), darkMetal);
+  mast.position.y = 0.82;
+  group.add(mast);
+
+  const mastCollar = new THREE.Mesh(new THREE.TorusGeometry(0.17,0.035,8,28), safety);
+  mastCollar.rotation.x = Math.PI / 2;
+  mastCollar.position.y = 0.31;
+  group.add(mastCollar);
+
+  for (const side of [-1,1]) {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.55,0.055,0.38), panelMat);
+    panel.position.set(side*0.55,0.82,0.02);
+    panel.rotation.z = side*-0.09;
+    group.add(panel);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.045,0.10,0.08), safety);
+    rail.position.set(side*0.34,0.84,0.02);
+    group.add(rail);
+  }
+
+  const signal = new THREE.Mesh(new THREE.SphereGeometry(0.19,16,12), glowMat);
+  signal.position.y = 1.63;
+  group.add(signal);
+
+  const signalRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.38,0.025,8,48),
+    new THREE.MeshBasicMaterial({color:record.color,transparent:true,opacity:0.72})
+  );
+  signalRing.position.y = 1.63;
+  group.add(signalRing);
+
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.075,0.22,3.4,12,1,true), beamMat);
+  beam.position.y = 3.30;
+  group.add(beam);
+
+  const waterHalo = new THREE.Mesh(
+    new THREE.TorusGeometry(1.35,0.018,6,64),
+    new THREE.MeshBasicMaterial({color:record.color,transparent:true,opacity:0.34,depthWrite:false})
+  );
+  waterHalo.rotation.x = Math.PI / 2;
+  waterHalo.position.y = 0.06;
+  group.add(waterHalo);
+
+  const light = new THREE.PointLight(record.color,1.15,22,2);
+  light.position.y = 1.55;
+  group.add(light);
+
+  scene.add(group);
+  return {group,signal,signalRing,waterHalo,beam,light,glowMat};
+}
+
+for (const record of expeditionRecords) {
+  record.view = createExpeditionBeacon(record);
+}
+
+function saveExpeditionLog() {
+  try {
+    localStorage.setItem(EXPEDITION_STORAGE_KEY,JSON.stringify([...discoveredIds]));
+  } catch (error) {
+    console.info("No se pudo guardar el diario en este navegador.", error);
+  }
+}
+
+function renderExpeditionJournal() {
+  if (!journalList) return;
+  journalList.replaceChildren();
+  journalProgress.textContent = discoveredIds.size + " / " + expeditionRecords.length + " REGISTROS";
+  journalToggle.textContent = "◈ REGISTRO " + discoveredIds.size + "/" + expeditionRecords.length;
+
+  expeditionRecords.forEach((record,index) => {
+    const found = discoveredIds.has(record.id);
+    const item = document.createElement("article");
+    item.className = "journal-entry" + (found ? " discovered" : " undiscovered");
+
+    const number = document.createElement("span");
+    number.className = "journal-number";
+    number.textContent = String(index+1).padStart(2,"0");
+
+    const content = document.createElement("div");
+    content.className = "journal-entry-copy";
+
+    const code = document.createElement("span");
+    code.className = "journal-entry-code";
+    code.textContent = found ? record.code : "SEÑAL PENDIENTE";
+
+    const title = document.createElement("strong");
+    title.textContent = found ? record.title : "Registro sin identificar";
+
+    const detail = document.createElement("p");
+    detail.textContent = found ? record.detail : "Acércate a una señal de investigación y detente para completar el escaneo.";
+
+    content.append(code,title,detail);
+    item.append(number,content);
+    journalList.append(item);
+  });
+}
+
+function setJournalOpen(open) {
+  journalOpen = !!open;
+  journalOverlay.classList.toggle("hidden",!journalOpen);
+  journalToggle.setAttribute("aria-expanded",journalOpen ? "true" : "false");
+  if (journalOpen) renderExpeditionJournal();
+}
+
+function showDiscoveryToast(record) {
+  if (!scanToast) return;
+  scanToastTitle.textContent = record.title;
+  scanToastDetail.textContent = record.region + " · REGISTRO GUARDADO";
+  scanToast.classList.remove("show");
+  void scanToast.offsetWidth;
+  scanToast.classList.add("show");
+  window.clearTimeout(scanToastTimer);
+  scanToastTimer = window.setTimeout(() => scanToast.classList.remove("show"),5200);
+}
+
+function startExpeditionScan() {
+  const target = expeditionState.nearest;
+  if (!target || target.distance > 19 || expeditionState.active) return;
+  expeditionState.active = target.record;
+  expeditionState.progress = 0;
+  scanPrompt.classList.add("visible");
+  scanProgressWrap.classList.add("visible");
+  scanAction.textContent = "ESCÁNER INICIADO · MANTENTE CERCA";
+}
+
+function completeExpeditionScan(record) {
+  discoveredIds.add(record.id);
+  saveExpeditionLog();
+  renderExpeditionJournal();
+  showDiscoveryToast(record);
+  expeditionState.active = null;
+  expeditionState.progress = 0;
+  scanProgressWrap.classList.remove("visible");
+  scanAction.textContent = "REGISTRO COMPLETADO";
+}
+
+function updateExpeditionSystem(dt,speed) {
+  let nearest = null;
+  for (const record of expeditionRecords) {
+    const view = record.view;
+    const wave = waveHeight(record.position.x,record.position.z,simulationTime);
+    view.group.position.set(record.position.x,wave,record.position.z);
+    view.group.rotation.x = Math.sin(simulationTime*0.54+record.phase)*0.018;
+    view.group.rotation.z = Math.cos(simulationTime*0.47+record.phase)*0.016;
+    view.group.rotation.y += dt*(0.08+weatherState.wind*0.035);
+    const pulse = 0.88 + 0.12*(0.5+0.5*Math.sin(simulationTime*1.7+record.phase));
+    view.signal.scale.setScalar(pulse);
+    view.signalRing.rotation.y += dt*0.22;
+    view.waterHalo.scale.setScalar(0.96+0.04*Math.sin(simulationTime*0.8+record.phase));
+    view.light.intensity = discoveredIds.has(record.id) ? 0.32 : 0.75+pulse*0.58;
+
+    if (!discoveredIds.has(record.id)) {
+      const distance = Math.hypot(player.position.x-record.position.x,player.position.z-record.position.z);
+      if (!nearest || distance < nearest.distance) nearest = {record,distance};
+    }
+  }
+  expeditionState.nearest = nearest;
+
+  const activeRecord = expeditionState.active;
+  if (activeRecord) {
+    const distance = Math.hypot(player.position.x-activeRecord.position.x,player.position.z-activeRecord.position.z);
+    if (distance > 23) {
+      expeditionState.active = null;
+      expeditionState.progress = 0;
+      scanProgressWrap.classList.remove("visible");
+      scanAction.textContent = "SEÑAL PERDIDA · ACÉRCATE DE NUEVO";
+    } else {
+      const stable = speed < 0.58;
+      if (stable) expeditionState.progress = Math.min(1,expeditionState.progress+dt/3.1);
+      scanTitle.textContent = activeRecord.title;
+      scanDetail.textContent = stable ? "Midiendo corrientes y resonancia local…" : "Detente para estabilizar el escáner.";
+      scanAction.textContent = stable ? "ANALIZANDO…" : "REDUCE EL MOVIMIENTO";
+      scanProgressFill.style.width = (expeditionState.progress*100).toFixed(1)+"%";
+      if (expeditionState.progress >= 1) completeExpeditionScan(activeRecord);
+    }
+  }
+
+  if (!expeditionState.active && nearest && nearest.distance < 31) {
+    scanPrompt.classList.add("visible");
+    scanTitle.textContent = nearest.record.code;
+    scanDetail.textContent = nearest.distance <= 19
+      ? "Señal estable a " + Math.round(nearest.distance) + " m."
+      : "Señal detectada a " + Math.round(nearest.distance) + " m. Acércate con calma.";
+    scanAction.textContent = nearest.distance <= 19 ? "E · INICIAR ESCANEO" : "ACÉRCATE A LA BALIZA";
+    scanProgressWrap.classList.remove("visible");
+  } else if (!expeditionState.active) {
+    scanPrompt.classList.remove("visible");
+  }
+}
+
+renderExpeditionJournal();
+
 function createParticleSystem(count) {
   const positions = new Float32Array(count*3);
   const velocities = new Float32Array(count*3);
@@ -1209,6 +1503,7 @@ function updateScene(dt, speed) {
   updateSpray(dt);
   updateWakeEvents(dt);
   updateRipples(dt);
+  updateExpeditionSystem(dt,speed);
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const underwater = firstPerson && camera.position.y < surfaceY;
   ocean.material.uniforms.uUnderwaterView.value = underwater ? 1 : 0;
@@ -1333,6 +1628,7 @@ function startAmbientAudio(){
 
 function startGame() {
   started=true;paused=false;
+  setJournalOpen(false);
   intro.classList.add("hidden");pauseOverlay.classList.add("hidden");
   if(ambientAudioEnabled)startAmbientAudio();
   if(renderer.domElement.requestPointerLock){
@@ -1352,6 +1648,8 @@ function resumeGame() {
 }
 startButton.addEventListener("click",startGame);
 resumeButton.addEventListener("click",resumeGame);
+journalToggle.addEventListener("click",()=>setJournalOpen(!journalOpen));
+journalClose.addEventListener("click",()=>setJournalOpen(false));
 if(soundToggle){
   soundToggle.addEventListener("click",()=>{
     ambientAudioEnabled=!ambientAudioEnabled;
@@ -1377,6 +1675,23 @@ window.addEventListener("keydown",event=>{
   if(event.code==="Escape"){
     if(started&&!paused)pauseGame();
     else if(started&&paused)resumeGame();
+    return;
+  }
+  if (event.code === "KeyJ" && !event.repeat && started && !paused) {
+    setJournalOpen(!journalOpen);
+    event.preventDefault();
+    return;
+  }
+  if (event.code === "KeyE" && !event.repeat && started && !paused && !journalOpen) {
+    if (expeditionState.active) {
+      expeditionState.active = null;
+      expeditionState.progress = 0;
+      scanProgressWrap.classList.remove("visible");
+      scanAction.textContent = "ESCANEO CANCELADO";
+    } else {
+      startExpeditionScan();
+    }
+    event.preventDefault();
     return;
   }
   if (event.code === "KeyV" && !event.repeat && started && !paused) {
@@ -1439,7 +1754,7 @@ function animate() {
   const dt=Math.min(clock.getDelta(),0.045);
   simulationTime+=dt;
   let speed=0;
-  if(started&&!paused){
+  if(started&&!paused&&!journalOpen){
     speed=updatePlayer(dt);
     updateExplorerLife(dt,speed);
   }
