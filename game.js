@@ -16,7 +16,7 @@ const clockLabel = document.getElementById("clockLabel");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
-const WATER_DEPTH_MEAN = 0.48;
+const WATER_DEPTH_MEAN = 1.10;
 const WATER_LEVEL = GROUND_Y + WATER_DEPTH_MEAN;
 const WATER_SIZE = 3000;
 const CAMERA_GROUND_CLEARANCE = 0.24;
@@ -86,7 +86,7 @@ function tideCycleAt(time) {
 const OCEAN_GRAVITY = 9.81;
 const OCEAN_DEPTH = WATER_DEPTH_MEAN;
 const OCEAN_WIND_SPEED = 8.0;
-const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.34;
+const OCEAN_TARGET_SIGNIFICANT_HEIGHT = 0.16;
 const OCEAN_WAVES_COUNT = 10;
 const OCEAN_WAVE_BINS = [
   { wavelength: 60, angle: -8, phase: 0.4 },
@@ -142,7 +142,9 @@ function waveHeight(x, z, time) {
   const trailingSwell = 0.10 * Math.exp(-Math.pow((front + 105) / 85, 2)) *
     Math.sin(front * 0.024 - time * 0.55);
   height += tideAmplitude * lateral * (mainSwell + trailingSwell);
-  return WATER_LEVEL + height;
+  const verticalLimit = 0.045;
+  const boundedHeight = verticalLimit * Math.tanh(height / verticalLimit);
+  return WATER_LEVEL + boundedHeight;
 }
 
 function createSkyDome() {
@@ -260,6 +262,11 @@ function createOcean() {
     "float lateralDx=-8.0*pow(lateralX,7.0)/780.0*lateral;",
     "dYdx+=lateralDx*tideShape;",
     "dYdz+=lateral*tideSlope;",
+    "float softHeight=tanh(height/0.045);",
+    "float verticalScale=1.0-softHeight*softHeight;",
+    "height=0.045*softHeight;",
+    "dYdx*=verticalScale;",
+    "dYdz*=verticalScale;",
     "tangentX=vec3(dXdx,dYdx,dZdx);",
     "tangentZ=vec3(dXdz,dYdz,dZdz);",
     "float jacobian=dXdx*dZdz-dXdz*dZdx;",
@@ -349,7 +356,7 @@ function createOcean() {
     "float causticEnergy=clamp(causticVein*(0.70+causticSoft*0.65),0.0,1.2);",
     "vec3 sandLit=sandColor*(0.72+causticEnergy*1.15);",
     "float bottomVisibility=exp(-uWaterDepth*1.35/max(nDotV,0.18));",
-    "float bottomMix=(1.0-fresnel)*bottomVisibility*0.34;",
+    "float bottomMix=(1.0-fresnel)*bottomVisibility*0.34*uUnderwaterView;",
     "water=mix(water,sandLit,bottomMix);",
     // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
     "float foamNoise=fbm(p*0.041+vec2(-uTime*0.055,uTime*0.031));",
@@ -492,7 +499,8 @@ function createCaustics() {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uTime: { value: 0 },
-      uOrigin: { value: new THREE.Vector2(0, 0) }
+      uOrigin: { value: new THREE.Vector2(0, 0) },
+      uVisibility: { value: 0 }
     },
     vertexShader: [
       "varying vec2 vUv;",
@@ -501,6 +509,7 @@ function createCaustics() {
     fragmentShader: [
       "uniform float uTime;",
       "uniform vec2 uOrigin;",
+      "uniform float uVisibility;",
       "varying vec2 vUv;",
       "void main(){",
       "vec2 p=(vUv-0.5)*3000.0+uOrigin;",
@@ -510,7 +519,7 @@ function createCaustics() {
       "float veins=pow(clamp(1.0-abs(a*b),0.0,1.0),6.0);",
       "float detail=0.65+0.35*sin(q.x*2.4+q.y*3.1+uTime*0.72);",
       "float intensity=clamp(veins*detail,0.0,1.0);",
-      "gl_FragColor=vec4(vec3(0.46,0.83,0.83),intensity*0.27);",
+      "gl_FragColor=vec4(vec3(0.46,0.83,0.83),intensity*0.27*uVisibility);",
       "}"
     ].join("\n"),
     transparent: true,
@@ -738,7 +747,7 @@ function updatePlayer(dt) {
 
   const tide = tideCycleAt(simulationTime);
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
-  const waterDepth = THREE.MathUtils.clamp(surfaceY - GROUND_Y, 0.12, 0.95);
+  const waterDepth = THREE.MathUtils.clamp(surfaceY - GROUND_Y, 0.12, 1.30);
   const pressure = 1 - THREE.MathUtils.smoothstep(tide.distance, 45, 220);
   const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085;
   const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075;
@@ -879,6 +888,7 @@ function updateScene(dt, speed) {
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const underwater = firstPerson && camera.position.y < surfaceY;
   ocean.material.uniforms.uUnderwaterView.value = underwater ? 1 : 0;
+  caustics.material.uniforms.uVisibility.value = underwater ? 1 : 0;
   underwaterOverlay.style.opacity = underwater ? "1" : "0";
   document.body.classList.toggle("tide-near", tide.distance < 260);
 
