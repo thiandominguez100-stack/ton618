@@ -13,6 +13,7 @@ const tideDistanceValue = document.getElementById("tideDistanceValue");
 const stateValue = document.getElementById("stateValue");
 const underwaterOverlay = document.getElementById("underwaterOverlay");
 const clockLabel = document.getElementById("clockLabel");
+const soundToggle = document.getElementById("soundToggle");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
@@ -61,8 +62,10 @@ let cameraPitch = 0.19;
 const cameraDistance = 13.5;
 const CAMERA_MOUSE_SENSITIVITY = 0.0046;
 const CAMERA_PITCH_SENSITIVITY = 0.0032;
-const CAMERA_THIRD_PERSON_RESPONSE = 8.2;
-const CAMERA_FIRST_PERSON_RESPONSE = 18.0;
+const CAMERA_THIRD_PERSON_RESPONSE = 11.5;
+const CAMERA_FIRST_PERSON_RESPONSE = 22.0;
+const CAMERA_LOOK_THIRD_RESPONSE = 14.5;
+const CAMERA_LOOK_FIRST_RESPONSE = 23.0;
 let firstPerson = false;
 const keys = Object.create(null);
 const velocity = new THREE.Vector3();
@@ -76,6 +79,37 @@ let telemetryTimer = 0;
 let tideFrontZ = -720;
 let tideCenterX = 0;
 let tideAmplitude = 1;
+let ambientSprayTimer = 0;
+let ambientMixTimer = 0;
+
+const weatherState = {
+  wind: 0.55,
+  gust: 0,
+  cloudCover: 0.42,
+  mist: 0.16,
+  windDirection: new THREE.Vector2(0.84,-0.54).normalize(),
+  sunDirection: SUN_DIR.clone()
+};
+
+function updateWorldWeather(){
+  const t=simulationTime;
+  const slowWind=0.5+0.5*Math.sin(t*0.017-0.8);
+  const gustWave=Math.max(0,Math.sin(t*0.105+0.7)*0.64+Math.sin(t*0.041-1.2)*0.36);
+  const gust=Math.pow(gustWave,4.0);
+  weatherState.gust=gust;
+  weatherState.wind=THREE.MathUtils.clamp(0.32+slowWind*0.35+gust*0.55,0.24,1.24);
+  weatherState.cloudCover=THREE.MathUtils.clamp(0.28+0.48*(0.5+0.5*Math.sin(t*0.013+1.6)),0.18,0.88);
+  weatherState.mist=THREE.MathUtils.clamp(0.07+0.19*(0.5+0.5*Math.sin(t*0.021-0.5))+gust*0.07,0.05,0.36);
+  weatherState.windDirection.set(
+    0.84+Math.sin(t*0.009)*0.18,
+    -0.54+Math.cos(t*0.007)*0.13
+  ).normalize();
+  weatherState.sunDirection.set(
+    SUN_DIR.x+Math.sin(t*0.00115)*0.055,
+    SUN_DIR.y+Math.sin(t*0.00165+0.7)*0.035,
+    SUN_DIR.z
+  ).normalize();
+}
 
 function tideCycleAt(time) {
   const period = 148;
@@ -168,6 +202,10 @@ function createSkyDome() {
     fragmentShader: [
       "uniform vec3 uSunDir;",
       "uniform float uTime;",
+      "uniform float uWindStrength;",
+      "uniform vec2 uWindDirection;",
+      "uniform float uCloudCover;",
+      "uniform float uMist;",
       "varying vec3 vDir;",
       "float hash21(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}",
       "float noise2(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);float a=hash21(i),b=hash21(i+vec2(1.0,0.0)),c=hash21(i+vec2(0.0,1.0)),d=hash21(i+vec2(1.0,1.0));return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);}",
@@ -186,7 +224,7 @@ function createSkyDome() {
       "sky+=vec3(1.0,0.73,0.42)*disc*3.2;",
       "sky+=vec3(1.0,0.66,0.38)*halo;",
       "vec2 skyUV=d.xz/max(0.18,d.y+0.16)*2.05;",
-      "vec2 wind=vec2(uTime*0.0032,-uTime*0.00135);",
+      "vec2 wind=uWindDirection*uTime*(0.0014+uWindStrength*0.0021);",
       "float warpX=fbm2(skyUV*1.35+wind);",
       "float warpY=fbm2(skyUV*1.35+wind+vec2(13.7,5.2));",
       "vec2 warpedUV=skyUV+(vec2(warpX,warpY)-0.5)*0.72;",
@@ -199,13 +237,16 @@ function createSkyDome() {
       "float cumulus=cloudShape*cloudBand;",
       "float highField=fbm2(skyUV*9.5+wind*0.34+vec2(31.0,8.0));",
       "float cirrus=smoothstep(0.61,0.75,highField)*smoothstep(0.08,0.48,d.y)*0.19;",
-      "float cloudAlpha=clamp(cumulus*0.88+cirrus,0.0,0.94);",
+      "float cloudAlpha=clamp(cumulus*(0.68+uCloudCover*0.34)+cirrus*(0.62+uCloudCover*0.22),0.0,0.96);",
       "float sunFacing=clamp(dot(normalize(vec3(d.x,max(d.y,0.12),d.z)),normalize(uSunDir)),0.0,1.0);",
       "vec3 cloudShade=mix(vec3(0.25,0.34,0.38),vec3(0.98,0.91,0.79),smoothstep(0.02,0.70,sunFacing));",
       "cloudShade+=vec3(0.12,0.15,0.17)*(1.0-smoothstep(0.0,0.38,d.y));",
       "float silverEdge=smoothstep(0.64,0.78,cloudDensity)*cloudBand*pow(sunDot,0.35)*0.22;",
       "sky=mix(sky,cloudShade,cloudAlpha);",
       "sky+=vec3(1.0,0.84,0.67)*silverEdge;",
+      "float mistField=fbm2(skyUV*1.65+wind*1.75);",
+      "float lowMist=(1.0-smoothstep(0.025,0.25,d.y))*smoothstep(0.32,0.62,mistField)*uMist;",
+      "sky=mix(sky,vec3(0.61,0.70,0.70),clamp(lowMist*0.38,0.0,0.30));",
       "gl_FragColor=vec4(sky,1.0);",
       "#include <tonemapping_fragment>",
       "#include <colorspace_fragment>",
@@ -213,7 +254,11 @@ function createSkyDome() {
     ].join("\n"),
     uniforms: {
       uSunDir: { value: SUN_DIR.clone() },
-      uTime: { value: 0 }
+      uTime: { value: 0 },
+      uWindStrength: { value: 0.55 },
+      uWindDirection: { value: new THREE.Vector2(0.84,-0.54).normalize() },
+      uCloudCover: { value: 0.42 },
+      uMist: { value: 0.16 }
     },
     fog: false
   });
@@ -300,6 +345,8 @@ function createOcean() {
     "uniform float uWaterLevel;",
     "uniform float uWaterDepth;",
     "uniform float uUnderwaterView;",
+    "uniform float uWindStrength;",
+    "uniform vec2 uWindDirection;",
     "uniform vec4 uWakeData[8];",
     "varying vec3 vWorldPos;",
     "varying vec2 vWorldXZ;",
@@ -312,7 +359,7 @@ function createOcean() {
     "vec3 skyReflection(vec3 d){",
     "float h=clamp(d.y,0.0,1.0);",
     "vec3 sky=mix(vec3(0.66,0.60,0.51),vec3(0.045,0.12,0.17),pow(h,0.72));",
-    "vec2 cloudUV=d.xz/(max(0.18,d.y+0.16))*2.05+vec2(uTime*0.0032,-uTime*0.00135);",
+    "vec2 cloudUV=d.xz/(max(0.18,d.y+0.16))*2.05+uWindDirection*uTime*(0.0014+uWindStrength*0.0021);",
     "float cloudWarp=fbm(cloudUV*1.35);",
     "float cloudBody=fbm(cloudUV*3.15+vec2(cloudWarp*0.6,-uTime*0.002));",
     "float cloudDetail=fbm(cloudUV*6.8+vec2(-uTime*0.004,uTime*0.0018));",
@@ -329,12 +376,13 @@ function createOcean() {
     "void main(){",
     "vec2 p=vWorldXZ;vec3 N=normalize(vWaveNormal);",
     // Small-scale travelling ripples influence the reflected highlights without overloading the mesh.
-    "float ph1=dot(p,vec2(0.83,0.55))*0.72-uTime*1.90;",
-    "float ph2=dot(p,vec2(-0.44,0.90))*1.35+uTime*3.20;",
-    "float ph3=dot(p,vec2(0.96,-0.27))*2.25-uTime*5.00;",
-    "float ph4=dot(p,vec2(-0.72,-0.69))*3.75+uTime*7.10;",
-    "float ph5=dot(p,vec2(0.18,0.98))*5.80-uTime*9.40;",
-    "float ph6=dot(p,vec2(-0.95,0.31))*8.20+uTime*12.30;",
+    "float windRate=0.76+uWindStrength*0.58;",
+    "float ph1=dot(p,vec2(0.83,0.55))*0.72+dot(p,uWindDirection)*0.035-uTime*1.90*windRate;",
+    "float ph2=dot(p,vec2(-0.44,0.90))*1.35+uTime*3.20*windRate;",
+    "float ph3=dot(p,vec2(0.96,-0.27))*2.25+dot(p,uWindDirection)*0.08-uTime*5.00*windRate;",
+    "float ph4=dot(p,vec2(-0.72,-0.69))*3.75+uTime*7.10*windRate;",
+    "float ph5=dot(p,vec2(0.18,0.98))*5.80+dot(p,uWindDirection)*0.12-uTime*9.40*windRate;",
+    "float ph6=dot(p,vec2(-0.95,0.31))*8.20+uTime*12.30*windRate;",
     "vec2 microSlope=vec2(",
     "0.085*0.72*0.83*cos(ph1)+0.050*1.35*(-0.44)*cos(ph2)+0.025*2.25*0.96*cos(ph3)+0.012*3.75*(-0.72)*cos(ph4)+0.006*5.80*0.18*cos(ph5)+0.003*8.20*(-0.95)*cos(ph6),",
     "0.085*0.72*0.55*cos(ph1)+0.050*1.35*0.90*cos(ph2)+0.025*2.25*(-0.27)*cos(ph3)+0.012*3.75*(-0.69)*cos(ph4)+0.006*5.80*0.98*cos(ph5)+0.003*8.20*0.31*cos(ph6));",
@@ -395,7 +443,7 @@ function createOcean() {
     "float bottomMix=(1.0-fresnel)*bottomVisibility*0.34*uUnderwaterView;",
     "water=mix(water,sandLit,bottomMix);",
     // Foam appears where the Gerstner mapping compresses and is carried by moving surface turbulence.
-    "vec2 foamFlow=p*0.052+vec2(-uTime*0.042,uTime*0.026);",
+    "vec2 foamFlow=p*0.052+uWindDirection*uTime*(0.025+uWindStrength*0.035);",
     "float foamNoise=fbm(foamFlow);",
     "float foamDetail=fbm(foamFlow*3.6+vec2(uTime*0.075,-uTime*0.052));",
     "float foamGrain=noise(p*0.22+vec2(-uTime*0.17,uTime*0.11));",
@@ -439,6 +487,8 @@ function createOcean() {
       uWaterLevel: { value: WATER_LEVEL },
       uWaterDepth: { value: WATER_DEPTH_MEAN },
       uUnderwaterView: { value: 0 },
+      uWindStrength: { value: 0.55 },
+      uWindDirection: { value: new THREE.Vector2(0.84,-0.54).normalize() },
       uWakeData: { value: Array.from({length:8},()=>new THREE.Vector4(0,0,0,0)) },
       uSunDir: { value: SUN_DIR.clone() },
       uWaveData: { value: waveUniforms },
@@ -823,7 +873,11 @@ function makeExplorer() {
   chestPanel.add(chestLight);
   chestLight.position.set(0,0.055,-0.03);
   player.add(root);
-  return { root, legPivots, armPivots };
+  return {
+    root, legPivots, armPivots,
+    torso, upper, helmet, visorMesh, backpack,
+    antennaLight, chestLight, visorReflection, packTop
+  };
 }
 const explorer = makeExplorer();
 
@@ -947,8 +1001,8 @@ function updatePlayer(dt) {
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const waterDepth = THREE.MathUtils.clamp(surfaceY - GROUND_Y, 0.12, 1.30);
   const pressure = 1 - THREE.MathUtils.smoothstep(tide.distance, 45, 220);
-  const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085;
-  const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075;
+  const currentX = Math.sin(player.position.z * 0.018 + simulationTime * 0.21) * 0.085 + weatherState.windDirection.x*weatherState.wind*0.035;
+  const currentZ = Math.cos(player.position.x * 0.015 - simulationTime * 0.18) * 0.075 + weatherState.windDirection.y*weatherState.wind*0.035;
   const tideFlow = tide.approaching ? pressure * 0.72 : -pressure * 0.24;
   const maxSpeed = (keys.ShiftLeft || keys.ShiftRight) ? 2.65 : 1.95;
   const targetX = wish.x * maxSpeed + currentX;
@@ -1014,8 +1068,39 @@ function updatePlayer(dt) {
   return horizontalSpeed;
 }
 
+function updateExplorerLife(dt,speed){
+  const t=simulationTime;
+  const idleAmount=1-THREE.MathUtils.smoothstep(speed,0.10,0.85);
+  const breath=Math.sin(t*1.62)*0.58+Math.sin(t*0.79+0.6)*0.22;
+
+  explorer.torso.scale.y=1.0+breath*0.007;
+  explorer.upper.scale.y=0.52*(1.0+breath*0.012);
+  explorer.helmet.position.y=2.72+breath*0.013+Math.sin(t*0.42)*0.005*idleAmount;
+  explorer.helmet.rotation.x=Math.sin(t*0.38+0.5)*0.012*idleAmount;
+  explorer.helmet.rotation.y=Math.sin(t*0.24)*0.026*idleAmount;
+  explorer.visorMesh.rotation.x=explorer.helmet.rotation.x*0.72;
+  explorer.visorMesh.rotation.y=explorer.helmet.rotation.y*0.82;
+  explorer.backpack.position.y=1.78+breath*0.008;
+  explorer.packTop.position.y=2.26+breath*0.008;
+
+  const pulse=0.88+0.12*(0.5+0.5*Math.sin(t*2.4));
+  explorer.antennaLight.scale.setScalar(pulse);
+  explorer.chestLight.scale.x=1.0+0.12*Math.sin(t*2.0+0.4);
+  explorer.chestLight.material.opacity=0.84+0.16*Math.sin(t*2.0);
+  explorer.visorReflection.material.opacity=0.26+0.06*Math.sin(t*0.7);
+
+  if(idleAmount>0.02){
+    explorer.armPivots[0].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[0].rotation.z,Math.sin(t*0.83)*0.016*idleAmount,Math.min(1,dt*3.0));
+    explorer.armPivots[1].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[1].rotation.z,-Math.sin(t*0.83+0.5)*0.016*idleAmount,Math.min(1,dt*3.0));
+    explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,Math.sin(t*0.52)*0.006*idleAmount,Math.min(1,dt*2.2));
+  }
+}
+
 const cameraTarget=new THREE.Vector3();
 const cameraDesired=new THREE.Vector3();
+const cameraLookSmoothed=new THREE.Vector3();
+let cameraLookReady=false;
+
 function updateCamera(dt) {
   if (firstPerson) {
     const eyeY = player.position.y + ((keys.ControlLeft || keys.ControlRight) ? 0.30 : 1.42);
@@ -1037,18 +1122,23 @@ function updateCamera(dt) {
     cameraTarget.set(player.position.x, targetY, player.position.z);
   }
   cameraDesired.y = Math.max(cameraDesired.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
-  camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? CAMERA_FIRST_PERSON_RESPONSE : CAMERA_THIRD_PERSON_RESPONSE)));
-  camera.position.y = Math.max(camera.position.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
-  camera.lookAt(cameraTarget);
-  // Let the horizon gently respond to the passing swell instead of feeling locked in place.
-  const leftHeight=waveHeight(player.position.x-2,player.position.z,simulationTime);
-  const rightHeight=waveHeight(player.position.x+2,player.position.z,simulationTime);
-  const seaSlope=(rightHeight-leftHeight)*0.25;
-  const roll=THREE.MathUtils.clamp(-seaSlope*0.18,-0.035,0.035);
-  camera.rotation.z=THREE.MathUtils.lerp(camera.rotation.z,roll,Math.min(1,dt*2.4));
+  const safeDt=THREE.MathUtils.clamp(dt,0,0.05);
+  const positionResponse=firstPerson?CAMERA_FIRST_PERSON_RESPONSE:CAMERA_THIRD_PERSON_RESPONSE;
+  const positionAlpha=1-Math.exp(-positionResponse*safeDt);
+  camera.position.lerp(cameraDesired,positionAlpha);
+  camera.position.y=Math.max(camera.position.y,GROUND_Y+CAMERA_GROUND_CLEARANCE);
+  if(!cameraLookReady){
+    cameraLookSmoothed.copy(cameraTarget);
+    cameraLookReady=true;
+  }
+  const lookResponse=firstPerson?CAMERA_LOOK_FIRST_RESPONSE:CAMERA_LOOK_THIRD_RESPONSE;
+  const lookAlpha=1-Math.exp(-lookResponse*safeDt);
+  cameraLookSmoothed.lerp(cameraTarget,lookAlpha);
+  camera.lookAt(cameraLookSmoothed);
 }
 
 function updateScene(dt, speed) {
+  updateWorldWeather();
   const tide = tideCycleAt(simulationTime);
   tideFrontZ = player.position.z - tide.distance;
   tideCenterX = player.position.x;
@@ -1067,12 +1157,42 @@ function updateScene(dt, speed) {
   ocean.material.uniforms.uTideZ.value = tideFrontZ;
   ocean.material.uniforms.uTideX.value = tideCenterX;
   ocean.material.uniforms.uTime.value = simulationTime;
+  ocean.material.uniforms.uWindStrength.value = weatherState.wind;
+  ocean.material.uniforms.uWindDirection.value.copy(weatherState.windDirection);
   skyDome.position.copy(camera.position);
   skyDome.material.uniforms.uTime.value = simulationTime;
+  skyDome.material.uniforms.uWindStrength.value = weatherState.wind;
+  skyDome.material.uniforms.uWindDirection.value.copy(weatherState.windDirection);
+  skyDome.material.uniforms.uCloudCover.value = weatherState.cloudCover;
+  skyDome.material.uniforms.uMist.value = weatherState.mist;
+  skyDome.material.uniforms.uSunDir.value.copy(weatherState.sunDirection);
+  ocean.material.uniforms.uSunDir.value.copy(weatherState.sunDirection);
+  sunLight.position.copy(weatherState.sunDirection).multiplyScalar(800);
+  sunLight.intensity=2.0-weatherState.cloudCover*0.62;
+  fillLight.intensity=0.72+weatherState.mist*0.38;
 
   gargantua.group.position.set(player.position.x - 355, 170, player.position.z - 1650);
   gargantua.ring1.rotation.z = Math.sin(simulationTime * 0.012) * 0.025;
   gargantua.ring2.rotation.z = -Math.sin(simulationTime * 0.012) * 0.025;
+
+  if(weatherState.gust>0.76){
+    ambientSprayTimer+=dt;
+    if(ambientSprayTimer>0.52){
+      const offset=5+Math.random()*12;
+      const x=player.position.x+weatherState.windDirection.x*offset+(Math.random()-0.5)*5;
+      const z=player.position.z+weatherState.windDirection.y*offset+(Math.random()-0.5)*5;
+      spawnSpray(x,z,2+Math.floor(weatherState.gust*3));
+      ambientSprayTimer=0;
+    }
+  }else{
+    ambientSprayTimer=0;
+  }
+
+  ambientMixTimer+=dt;
+  if(ambientMixTimer>0.9){
+    syncAmbientAudio();
+    ambientMixTimer=0;
+  }
 
   const sprayWindow = tide.approaching && tide.distance < 490;
   if (sprayWindow) {
@@ -1116,9 +1236,105 @@ function updateScene(dt, speed) {
   }
 }
 
+let ambientAudio=null;
+let ambientAudioEnabled=true;
+
+function createAmbientAudio(){
+  const AudioContextClass=window.AudioContext||window.webkitAudioContext;
+  if(!AudioContextClass)return null;
+  try{
+    const context=new AudioContextClass();
+    const master=context.createGain();
+    master.gain.value=0.0001;
+    master.connect(context.destination);
+
+    const buffer=context.createBuffer(1,context.sampleRate*3,context.sampleRate);
+    const channel=buffer.getChannelData(0);
+    let brown=0;
+    for(let i=0;i<channel.length;i++){
+      brown=(brown+0.018*(Math.random()*2-1))*0.985;
+      channel[i]=THREE.MathUtils.clamp(brown*3.2,-1,1);
+    }
+
+    const makeLayer=(type,frequency,q,level)=>{
+      const source=context.createBufferSource();
+      source.buffer=buffer;
+      source.loop=true;
+      const filter=context.createBiquadFilter();
+      filter.type=type;
+      filter.frequency.value=frequency;
+      filter.Q.value=q;
+      const gain=context.createGain();
+      gain.gain.value=level;
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(master);
+      source.start();
+      return {source,filter,gain};
+    };
+
+    const wind=makeLayer("lowpass",520,0.55,0.26);
+    const surf=makeLayer("lowpass",190,0.7,0.24);
+    const spray=makeLayer("highpass",1150,0.45,0.045);
+
+    const lfo=context.createOscillator();
+    const lfoDepth=context.createGain();
+    lfo.type="sine";
+    lfo.frequency.value=0.055;
+    lfoDepth.gain.value=0.055;
+    lfo.connect(lfoDepth);
+    lfoDepth.connect(surf.gain);
+    lfo.start();
+
+    const distant=context.createOscillator();
+    const distantGain=context.createGain();
+    distant.type="sine";
+    distant.frequency.value=46;
+    distantGain.gain.value=0.018;
+    distant.connect(distantGain);
+    distantGain.connect(master);
+    distant.start();
+
+    ambientAudio={context,master,wind,surf,spray,lfo,lfoDepth,distant,distantGain};
+    context.resume().catch(()=>{});
+    return ambientAudio;
+  }catch(error){
+    console.info("Audio ambiental no disponible en este navegador",error);
+    return null;
+  }
+}
+
+function syncAmbientAudio(){
+  if(!ambientAudioEnabled||!ambientAudio){
+    if(soundToggle){
+      soundToggle.textContent="♪ SONIDO OFF";
+      soundToggle.setAttribute("aria-pressed","false");
+    }
+    return;
+  }
+  const now=ambientAudio.context.currentTime;
+  ambientAudio.wind.gain.gain.setTargetAtTime(0.22+weatherState.wind*0.12,now,0.8);
+  ambientAudio.surf.gain.gain.setTargetAtTime(0.19+weatherState.gust*0.12,now,0.9);
+  ambientAudio.spray.gain.gain.setTargetAtTime(0.035+weatherState.gust*0.065,now,0.7);
+  ambientAudio.master.gain.setTargetAtTime(0.18,now,0.65);
+  if(soundToggle){
+    soundToggle.textContent="♪ SONIDO ON";
+    soundToggle.setAttribute("aria-pressed","true");
+  }
+}
+
+function startAmbientAudio(){
+  if(!ambientAudio)createAmbientAudio();
+  if(ambientAudio){
+    ambientAudio.context.resume().catch(()=>{});
+    syncAmbientAudio();
+  }
+}
+
 function startGame() {
   started=true;paused=false;
   intro.classList.add("hidden");pauseOverlay.classList.add("hidden");
+  if(ambientAudioEnabled)startAmbientAudio();
   if(renderer.domElement.requestPointerLock){
     try{renderer.domElement.requestPointerLock();}catch(error){console.info("Se usará cámara con arrastre",error);}
   }
@@ -1136,7 +1352,22 @@ function resumeGame() {
 }
 startButton.addEventListener("click",startGame);
 resumeButton.addEventListener("click",resumeGame);
-recenterButton.addEventListener("click",()=>{cameraYaw=0.12;cameraPitch=0.19;});
+if(soundToggle){
+  soundToggle.addEventListener("click",()=>{
+    ambientAudioEnabled=!ambientAudioEnabled;
+    if(ambientAudioEnabled){
+      startAmbientAudio();
+    }else if(ambientAudio){
+      ambientAudio.master.gain.setTargetAtTime(0.0001,ambientAudio.context.currentTime,0.3);
+      soundToggle.textContent="♪ SONIDO OFF";
+      soundToggle.setAttribute("aria-pressed","false");
+    }else{
+      soundToggle.textContent="♪ SONIDO OFF";
+      soundToggle.setAttribute("aria-pressed","false");
+    }
+  });
+}
+recenterButton.addEventListener("click",()=>{cameraYaw=0.12;cameraPitch=0.19;cameraLookReady=false;});
 document.addEventListener("pointerlockchange",()=>{
   pointerLocked=document.pointerLockElement===renderer.domElement;
   if(pointerLocked){hadPointerLock=true;}
@@ -1150,6 +1381,7 @@ window.addEventListener("keydown",event=>{
   }
   if (event.code === "KeyV" && !event.repeat && started && !paused) {
     firstPerson = !firstPerson;
+    cameraLookReady=false;
     explorer.root.visible = !firstPerson;
     return;
   }
@@ -1179,6 +1411,8 @@ renderer.domElement.addEventListener("pointermove",event=>{
   if(pointerLocked){dx=event.movementX||0;dy=event.movementY||0;}
   else if(dragging){dx=event.clientX-lastPointer.x;dy=event.clientY-lastPointer.y;lastPointer.x=event.clientX;lastPointer.y=event.clientY;}
   else return;
+  dx=THREE.MathUtils.clamp(dx,-120,120);
+  dy=THREE.MathUtils.clamp(dy,-120,120);
   cameraYaw-=dx*CAMERA_MOUSE_SENSITIVITY;
   cameraPitch=THREE.MathUtils.clamp(cameraPitch-dy*CAMERA_PITCH_SENSITIVITY,-0.58,0.68);
 });
@@ -1205,7 +1439,10 @@ function animate() {
   const dt=Math.min(clock.getDelta(),0.045);
   simulationTime+=dt;
   let speed=0;
-  if(started&&!paused){speed=updatePlayer(dt);}
+  if(started&&!paused){
+    speed=updatePlayer(dt);
+    updateExplorerLife(dt,speed);
+  }
   updateCamera(dt);
   updateScene(dt,speed);
   renderer.render(scene,camera);
