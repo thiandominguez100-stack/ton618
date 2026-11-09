@@ -690,39 +690,6 @@ function updateScene(dt, speed) {
   }
 }
 
-let tideWallTime=0;
-function updateScene(dt,speed) {
-  ocean.position.set(player.position.x,0,player.position.z);
-  ocean.material.uniforms.uOrigin.value.set(player.position.x,player.position.z);
-  ocean.material.uniforms.uTime.value=simulationTime;
-  skyDome.position.copy(camera.position);
-  skyDome.material.uniforms.uTime.value=simulationTime;
-
-  const tideDistance=660+Math.sin(simulationTime*0.045)*95;
-  mainTide.wall.position.set(player.position.x,-3.2,player.position.z-tideDistance);
-  mainTide.material.uniforms.uTime.value=simulationTime;
-  farTide.wall.position.set(player.position.x,-3.2,player.position.z-1420+Math.sin(simulationTime*0.026)*75);
-  farTide.material.uniforms.uTime.value=simulationTime*0.72;
-
-  gargantua.group.position.set(player.position.x-355,170,player.position.z-1650);
-  gargantua.ring1.rotation.z=Math.sin(simulationTime*0.012)*0.025;
-  gargantua.ring2.rotation.z=-Math.sin(simulationTime*0.012)*0.025;
-
-  updateSpray(dt);
-  updateRipples(dt);
-  telemetryTimer+=dt;
-  if(telemetryTimer>0.12){
-    speedValue.textContent=speed.toFixed(1)+" m/s";
-    const currentHeight=waveHeight(player.position.x,player.position.z,simulationTime);
-    waveValue.textContent=(currentHeight>=0?"+":"")+currentHeight.toFixed(2)+" m";
-    tideValue.textContent=Math.sin(simulationTime*0.045)>0.12?"SUBIENDO":"BAJANDO";
-    const minutes=Math.floor(simulationTime/60).toString().padStart(2,"0");
-    const seconds=Math.floor(simulationTime%60).toString().padStart(2,"0");
-    clockLabel.textContent="T+ "+minutes+":"+seconds;
-    telemetryTimer=0;
-  }
-}
-
 function startGame() {
   started=true;paused=false;
   intro.classList.add("hidden");pauseOverlay.classList.add("hidden");
