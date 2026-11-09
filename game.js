@@ -2029,6 +2029,9 @@ function startAmbientAudio(){
 
 function startGame() {
   started=true;paused=false;
+  for(const key of Object.keys(keys))keys[key]=false;
+  jumpRequested=false;
+  spaceStrokeRequested=false;
   setJournalOpen(false);
   intro.classList.add("hidden");pauseOverlay.classList.add("hidden");
   if(ambientAudioEnabled)startAmbientAudio();
@@ -2074,7 +2077,6 @@ document.addEventListener("pointerlockchange",()=>{
   else if(hadPointerLock&&started&&!paused){pauseGame();}
 });
 function getInputCode(event){
-  if(event.code)return event.code;
   const fallback={
     " ":"Space","Spacebar":"Space",
     "w":"KeyW","W":"KeyW","a":"KeyA","A":"KeyA",
@@ -2083,9 +2085,12 @@ function getInputCode(event){
     "Shift":"ShiftLeft","Control":"ControlLeft","Escape":"Escape",
     "e":"KeyE","E":"KeyE","j":"KeyJ","J":"KeyJ","v":"KeyV","V":"KeyV"
   };
-  return fallback[event.key]||event.key;
+  const code=event.code||fallback[event.key]||event.key;
+  if(code==="Shift")return event.location===2?"ShiftRight":"ShiftLeft";
+  if(code==="Control")return event.location===2?"ControlRight":"ControlLeft";
+  return code;
 }
-document.addEventListener("keydown",event=>{
+window.addEventListener("keydown",event=>{
   const code=getInputCode(event);
   if(code==="Escape"){
     if(started&&!paused)pauseGame();
@@ -2128,13 +2133,18 @@ document.addEventListener("keydown",event=>{
     return;
   }
   keys[code]=true;
-  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift"||event.shiftKey)keys.Sprint=true;
+  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift"||event.shiftKey){
+    keys.Sprint=!!(event.shiftKey||keys.ShiftLeft||keys.ShiftRight);
+    event.preventDefault();
+  }
   if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(code))event.preventDefault();
 },true);
-document.addEventListener("keyup",event=>{
+window.addEventListener("keyup",event=>{
   const code=getInputCode(event);
   keys[code]=false;
-  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift")keys.Sprint=!!event.shiftKey;
+  if(code==="ShiftLeft"||code==="ShiftRight"||event.key==="Shift"){
+    keys.Sprint=!!(event.shiftKey||keys.ShiftLeft||keys.ShiftRight);
+  }
   if(code==="Space")keys.Space=false;
 },true);
 window.addEventListener("blur",()=>{
