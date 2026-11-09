@@ -785,8 +785,7 @@ function makeExplorer() {
   for(let side of [-1,1]){
     const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.115,0.13,0.66,12),dark);
     tank.position.set(side*0.34,1.72,0.56);root.add(tank);
-    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.25,16,12),orange);
-    shoulder.position.set(side*0.52,2.02,0);root.add(shoulder);
+    // Shoulder armor is attached to the articulated shoulder pivot below.
   }
 
   const neckSeal=addPart(new THREE.CylinderGeometry(0.315,0.34,0.16,24),rubber,[0,2.42,0]);
@@ -904,6 +903,10 @@ function makeExplorer() {
   const armPivots=[],elbowPivots=[],wristPivots=[];
   for(const side of [-1,1]){
     const shoulder=new THREE.Group();shoulder.position.set(side*0.48,2.0,0);root.add(shoulder);
+    const shoulderCover=new THREE.Mesh(new THREE.SphereGeometry(0.25,16,12),orange);
+    shoulderCover.position.set(side*0.04,-0.02,0);
+    shoulderCover.scale.set(1.0,0.94,0.96);
+    shoulder.add(shoulderCover);
     const shoulderBearing=new THREE.Mesh(new THREE.SphereGeometry(0.17,16,12),hipJointMaterial);
     shoulderBearing.position.set(0,-0.02,0);shoulder.add(shoulderBearing);
     const upperArm=new THREE.Mesh(new THREE.CylinderGeometry(0.145,0.125,0.42,16),suit);
@@ -1491,7 +1494,9 @@ function updateExplorerLife(dt,speed){
       explorer.wristPivots[side].rotation.z,Math.sin(t*0.55+side)*0.025*idleAmount,Math.min(1,dt*2.2)
     );
   }
-  explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,Math.sin(t*0.52)*0.006*idleAmount,Math.min(1,dt*2.2));
+  const locomotionLean=THREE.MathUtils.clamp(-speed*0.035,-0.085,0);
+  const breathingSway=Math.sin(t*0.52)*0.006*idleAmount;
+  explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,locomotionLean+breathingSway,Math.min(1,dt*2.2));
 }
 
 const cameraTarget=new THREE.Vector3();
