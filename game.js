@@ -828,6 +828,7 @@ function makeExplorer() {
     root.add(harness);
     const hipPouch=addPart(new THREE.BoxGeometry(0.20,0.24,0.18),panel,[side*0.39,1.18,-0.02]);
     const pouchLatch=addPart(new THREE.BoxGeometry(0.10,0.035,0.025),orange,[side*0.39,1.22,-0.122]);
+    hipPouchParts.push(hipPouch,pouchLatch);
   }
 
   const packFrame=addPart(new THREE.BoxGeometry(0.79,0.98,0.12),rubber,[0,1.78,0.685]);
@@ -857,7 +858,8 @@ function makeExplorer() {
   const lowerChestPort=addPart(new THREE.CylinderGeometry(0.075,0.075,0.05,14),orange,[0,1.47,-0.43]);
   lowerChestPort.rotation.x=Math.PI/2;
 
-  const legPivots=[],kneePivots=[],anklePivots=[];
+  const legPivots=[],kneePivots=[],anklePivots=[],toePivots=[];
+  const hipPouchParts=[];
   const hipJointMaterial=mat(0x425b63,0.38,0.62);
   const bearingMaterial=mat(0xc28b5a,0.34,0.58);
   for(const side of [-1,1]){
@@ -897,14 +899,24 @@ function makeExplorer() {
     toeCap.position.set(0,-0.065,-0.245);anklePivot.add(toeCap);
     const bootStripe=new THREE.Mesh(new THREE.BoxGeometry(0.25,0.035,0.09),glow);
     bootStripe.position.set(0,0.012,-0.23);anklePivot.add(bootStripe);
+    const toePivot=new THREE.Group();
+    toePivot.position.set(0,-0.065,-0.22);
+    anklePivot.add(toePivot);
+    anklePivot.updateMatrixWorld(true);
+    toePivot.updateMatrixWorld(true);
+    toePivot.attach(toeCap);
+    toePivot.attach(bootStripe);
 
     legPivots.push(hip);
     kneePivots.push(kneePivot);
     anklePivots.push(anklePivot);
+    toePivots.push(toePivot);
   }
 
   const armPivots=[],elbowPivots=[],wristPivots=[];
+  const handFingerPivots=[[],[]];
   for(const side of [-1,1]){
+    const sideIndex=side===-1?0:1;
     const shoulder=new THREE.Group();shoulder.position.set(side*0.48,2.0,0);root.add(shoulder);
     const shoulderCover=new THREE.Mesh(new THREE.SphereGeometry(0.25,16,12),orange);
     shoulderCover.position.set(side*0.04,-0.02,0);
@@ -937,6 +949,46 @@ function makeExplorer() {
     const glovePlate=new THREE.Mesh(new THREE.BoxGeometry(0.145,0.065,0.095),trim);
     glovePlate.position.set(0,-0.105,-0.145);wristPivot.add(glovePlate);
 
+    // Flexible glove digits: two links per finger plus an opposable thumb.
+    const handDigits=[];
+    const fingerOffsets=[-0.078,-0.027,0.027,0.078];
+    const fingerLengths=[0.086,0.098,0.091,0.078];
+    for(let fingerIndex=0;fingerIndex<4;fingerIndex++){
+      const fingerBase=new THREE.Group();
+      fingerBase.position.set(fingerOffsets[fingerIndex],-0.17,-0.025);
+      wristPivot.add(fingerBase);
+      const proximalLength=fingerLengths[fingerIndex];
+      const proximal=new THREE.Mesh(new THREE.CylinderGeometry(0.024,0.029,proximalLength,9),rubber);
+      proximal.position.y=-proximalLength*0.5;
+      fingerBase.add(proximal);
+      const fingerTip=new THREE.Group();
+      fingerTip.position.y=-proximalLength;
+      fingerBase.add(fingerTip);
+      const distalLength=proximalLength*0.72;
+      const distal=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.023,distalLength,9),rubber);
+      distal.position.y=-distalLength*0.5;
+      fingerTip.add(distal);
+      const fingertip=new THREE.Mesh(new THREE.SphereGeometry(0.021,9,8),dark);
+      fingertip.position.y=-distalLength;
+      fingerTip.add(fingertip);
+      handDigits.push({base:fingerBase,distal:fingerTip});
+    }
+    const thumbBase=new THREE.Group();
+    thumbBase.position.set(side*0.12,-0.115,-0.025);
+    thumbBase.rotation.z=-side*0.62;
+    wristPivot.add(thumbBase);
+    const thumbSegment=new THREE.Mesh(new THREE.CylinderGeometry(0.025,0.032,0.085,9),rubber);
+    thumbSegment.position.set(side*0.018,-0.042,-0.008);
+    thumbBase.add(thumbSegment);
+    const thumbTip=new THREE.Group();
+    thumbTip.position.set(side*0.035,-0.078,-0.01);
+    thumbBase.add(thumbTip);
+    const thumbDistal=new THREE.Mesh(new THREE.CylinderGeometry(0.019,0.025,0.065,9),rubber);
+    thumbDistal.position.set(side*0.012,-0.032,-0.006);
+    thumbTip.add(thumbDistal);
+    handDigits.push({base:thumbBase,distal:thumbTip});
+    handFingerPivots[sideIndex]=handDigits;
+
     armPivots.push(shoulder);
     elbowPivots.push(elbowPivot);
     wristPivots.push(wristPivot);
@@ -947,12 +999,108 @@ function makeExplorer() {
   chestPanel.position.set(0,1.72,-0.44);root.add(chestPanel);
   chestPanel.add(chestLight);
   chestLight.position.set(0,0.055,-0.03);
+
+  // Pelvis -> lumbar spine -> thorax -> neck/head. Keep original world pose.
+  const pelvisPivot=new THREE.Group();
+  pelvisPivot.position.set(0,1.04,0);
+  root.add(pelvisPivot);
+  const spinePivot=new THREE.Group();
+  pelvisPivot.add(spinePivot);
+  const thoraxPivot=new THREE.Group();
+  thoraxPivot.position.set(0,0.80,0);
+  spinePivot.add(thoraxPivot);
+  root.updateMatrixWorld(true);
+  pelvisPivot.updateMatrixWorld(true);
+  spinePivot.updateMatrixWorld(true);
+  thoraxPivot.updateMatrixWorld(true);
+
+  pelvisPivot.attach(pelvis);
+  pelvisPivot.attach(belt);
+  for(const part of hipPouchParts)pelvisPivot.attach(part);
+  for(const hip of legPivots)pelvisPivot.attach(hip);
+
+  const thoraxParts=new Set([upper,headPivot,...armPivots]);
+  const pelvisParts=new Set([pelvis,belt,...hipPouchParts,...legPivots]);
+  for(const child of [...root.children]){
+    if(child===pelvisPivot||pelvisParts.has(child)||thoraxParts.has(child))continue;
+    spinePivot.attach(child);
+  }
+  thoraxPivot.attach(upper);
+  thoraxPivot.attach(headPivot);
+  for(const shoulder of armPivots)thoraxPivot.attach(shoulder);
+  const headBaseY=headPivot.position.y;
+
+  // Spring-damped joints add controlled inertia and respect anatomical ranges.
+  const createJoint=(pivot,limits,stiffness=44)=>{
+    const target=new THREE.Vector3(pivot.rotation.x,pivot.rotation.y,pivot.rotation.z);
+    const velocity=new THREE.Vector3();
+    const minimum=new THREE.Vector3(limits[0][0],limits[1][0],limits[2][0]);
+    const maximum=new THREE.Vector3(limits[0][1],limits[1][1],limits[2][1]);
+    const damping=2*Math.sqrt(stiffness)*0.98;
+    return {
+      pivot,target,velocity,
+      set(x,y,z){
+        target.set(
+          THREE.MathUtils.clamp(x,minimum.x,maximum.x),
+          THREE.MathUtils.clamp(y,minimum.y,maximum.y),
+          THREE.MathUtils.clamp(z,minimum.z,maximum.z)
+        );
+      },
+      update(dt){
+        const elapsed=THREE.MathUtils.clamp(dt,0,0.08);
+        const steps=Math.max(1,Math.ceil(elapsed/0.016));
+        const step=elapsed/steps;
+        for(let n=0;n<steps;n++){
+          for(const axis of ["x","y","z"]){
+            const error=target[axis]-pivot.rotation[axis];
+            const acceleration=error*stiffness-velocity[axis]*damping;
+            velocity[axis]+=acceleration*step;
+            let next=pivot.rotation[axis]+velocity[axis]*step;
+            if(next<minimum[axis]){
+              next=minimum[axis];
+              if(velocity[axis]<0)velocity[axis]=0;
+            }else if(next>maximum[axis]){
+              next=maximum[axis];
+              if(velocity[axis]>0)velocity[axis]=0;
+            }
+            pivot.rotation[axis]=next;
+          }
+        }
+      }
+    };
+  };
+
+  const joints={
+    pelvis:createJoint(pelvisPivot,[[-0.28,0.28],[-0.24,0.24],[-0.22,0.22]],38),
+    spine:createJoint(spinePivot,[[-0.34,0.34],[-0.22,0.22],[-0.26,0.26]],40),
+    thorax:createJoint(thoraxPivot,[[-0.30,0.30],[-0.28,0.28],[-0.24,0.24]],44),
+    neck:createJoint(headPivot,[[-0.52,0.52],[-0.78,0.78],[-0.46,0.46]],50),
+    hips:legPivots.map(p=>createJoint(p,[[-0.88,0.88],[-0.46,0.46],[-0.42,0.42]],44)),
+    knees:kneePivots.map(p=>createJoint(p,[[-0.12,1.32],[-0.10,0.10],[-0.12,0.12]],48)),
+    ankles:anklePivots.map(p=>createJoint(p,[[-0.48,0.52],[-0.22,0.22],[-0.28,0.28]],46)),
+    toes:toePivots.map(p=>createJoint(p,[[-0.34,0.62],[-0.12,0.12],[-0.12,0.12]],48)),
+    shoulders:armPivots.map(p=>createJoint(p,[[-1.10,1.10],[-0.72,0.72],[-0.78,0.78]],42)),
+    elbows:elbowPivots.map(p=>createJoint(p,[[-0.12,1.62],[-0.12,0.12],[-0.18,0.18]],48)),
+    wrists:wristPivots.map(p=>createJoint(p,[[-0.70,0.70],[-0.62,0.62],[-0.56,0.56]],52)),
+    fingers:handFingerPivots.map(hand=>hand.map(digit=>({
+      base:createJoint(digit.base,[[-0.42,0.82],[-0.22,0.22],[-0.26,0.26]],56),
+      distal:createJoint(digit.distal,[[-0.22,0.95],[-0.16,0.16],[-0.18,0.18]],58)
+    })))
+  };
+  const allJointControllers=[
+    joints.pelvis,joints.spine,joints.thorax,joints.neck,
+    ...joints.hips,...joints.knees,...joints.ankles,...joints.toes,
+    ...joints.shoulders,...joints.elbows,...joints.wrists,
+    ...joints.fingers.flatMap(hand=>hand.flatMap(digit=>[digit.base,digit.distal]))
+  ];
+
   player.add(root);
   return {
-    root, legPivots, kneePivots, anklePivots,
-    armPivots, elbowPivots, wristPivots, headPivot,
-    torso, upper, helmet, visorMesh, backpack,
-    antennaLight, chestLight, visorReflection, packTop
+    root,pelvisPivot,spinePivot,thoraxPivot,headBaseY,joints,allJointControllers,
+    legPivots,kneePivots,anklePivots,toePivots,
+    armPivots,elbowPivots,wristPivots,headPivot,
+    torso,upper,helmet,visorMesh,backpack,
+    antennaLight,chestLight,visorReflection,packTop
   };
 }
 const explorer = makeExplorer();
@@ -1418,14 +1566,32 @@ function updatePlayer(dt) {
     for(let side=0;side<2;side++){
       const legWave=side===0?gait:oppositeGait;
       const armWave=-legWave;
-      explorer.legPivots[side].rotation.x=legWave*stride;
-      explorer.legPivots[side].rotation.z=(side===0?1:-1)*0.018;
-      explorer.kneePivots[side].rotation.x=Math.max(0,legWave)*0.62+0.045;
-      explorer.anklePivots[side].rotation.x=-legWave*0.22-Math.max(0,legWave)*0.12;
-      explorer.armPivots[side].rotation.x=armWave*0.28-0.04;
-      explorer.armPivots[side].rotation.z=(side===0?-1:1)*0.035;
-      explorer.elbowPivots[side].rotation.x=0.17+Math.max(0,armWave)*0.24;
-      explorer.wristPivots[side].rotation.x=-0.08+Math.sin(walkPhase*0.5+side)*0.045;
+      const sideSign=side===0?-1:1;
+      const recovery=Math.max(0,Math.cos(walkPhase+side*Math.PI));
+      explorer.joints.hips[side].set(
+        legWave*stride,
+        Math.sin(walkPhase+side*Math.PI)*0.025,
+        -sideSign*0.018
+      );
+      explorer.joints.knees[side].set(Math.max(0,legWave)*0.62+0.045,0,sideSign*0.008);
+      explorer.joints.ankles[side].set(
+        -legWave*0.22-Math.max(0,legWave)*0.12+recovery*0.035,
+        0,
+        -sideSign*0.012
+      );
+      explorer.joints.toes[side].set(0.18*recovery,0,0);
+      explorer.joints.shoulders[side].set(armWave*0.28-0.04,sideSign*0.018,sideSign*0.035);
+      explorer.joints.elbows[side].set(0.17+Math.max(0,armWave)*0.24,0,sideSign*0.02);
+      explorer.joints.wrists[side].set(
+        -0.08+Math.sin(walkPhase*0.5+side)*0.045,
+        sideSign*0.015,
+        Math.sin(walkPhase*0.5+side)*0.018
+      );
+      explorer.joints.fingers[side].forEach((digit,index)=>{
+        const curl=0.10+0.025*Math.sin(walkPhase*2+side+index*0.35);
+        digit.base.set(curl,0,0);
+        digit.distal.set(curl*0.72,0,0);
+      });
     }
     splashTimer += dt;
     rippleTimer += dt;
@@ -1443,14 +1609,17 @@ function updatePlayer(dt) {
   } else {
     const settle=1-Math.exp(-dt*5.2);
     for(let side=0;side<2;side++){
-      explorer.legPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.legPivots[side].rotation.x,0,settle);
-      explorer.legPivots[side].rotation.z=THREE.MathUtils.lerp(explorer.legPivots[side].rotation.z,0,settle);
-      explorer.kneePivots[side].rotation.x=THREE.MathUtils.lerp(explorer.kneePivots[side].rotation.x,0.035,settle);
-      explorer.anklePivots[side].rotation.x=THREE.MathUtils.lerp(explorer.anklePivots[side].rotation.x,0,settle);
-      explorer.armPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.armPivots[side].rotation.x,0,settle);
-      explorer.armPivots[side].rotation.z=THREE.MathUtils.lerp(explorer.armPivots[side].rotation.z,0,settle);
-      explorer.elbowPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.elbowPivots[side].rotation.x,0.15,settle);
-      explorer.wristPivots[side].rotation.x=THREE.MathUtils.lerp(explorer.wristPivots[side].rotation.x,0,settle);
+      explorer.joints.hips[side].set(0,0,0);
+      explorer.joints.knees[side].set(0.035,0,0);
+      explorer.joints.ankles[side].set(0,0,0);
+      explorer.joints.toes[side].set(0,0,0);
+      explorer.joints.shoulders[side].set(0,0,0);
+      explorer.joints.elbows[side].set(0.15,0,0);
+      explorer.joints.wrists[side].set(0,0,0);
+      explorer.joints.fingers[side].forEach(digit=>{
+        digit.base.set(0.08,0,0);
+        digit.distal.set(0.055,0,0);
+      });
     }
     splashTimer = 0;
     rippleTimer = 0;
@@ -1459,9 +1628,11 @@ function updatePlayer(dt) {
   const waveBob = THREE.MathUtils.clamp((surfaceY - WATER_LEVEL) * 0.18, -0.035, 0.035);
   const gaitBob = horizontalSpeed > 0.12 ? Math.abs(Math.sin(walkPhase * 2)) * 0.035 : 0;
   explorer.root.position.y = waveBob + gaitBob;
+  // The pelvis and spine handle balance independently; root yaw remains stable.
   const forwardLean=lowView?-0.10:THREE.MathUtils.clamp(-horizontalSpeed*0.035,-0.085,0);
-  explorer.root.rotation.x += (forwardLean-explorer.root.rotation.x)*Math.min(1,dt*2.5);
-  explorer.root.rotation.z += (THREE.MathUtils.clamp(-velocity.x*0.035,-0.10,0.10)-explorer.root.rotation.z)*Math.min(1,dt*3.0);
+  explorer.joints.spine.set(forwardLean,0,THREE.MathUtils.clamp(-velocity.x*0.025,-0.10,0.10));
+  explorer.joints.thorax.set(-forwardLean*0.18,0,THREE.MathUtils.clamp(velocity.x*0.008,-0.035,0.035));
+  explorer.joints.pelvis.set(0,0,THREE.MathUtils.clamp(velocity.x*0.012,-0.045,0.045));
   return horizontalSpeed;
 }
 
@@ -1472,10 +1643,13 @@ function updateExplorerLife(dt,speed){
 
   explorer.torso.scale.y=1.0+breath*0.007;
   explorer.upper.scale.y=0.52*(1.0+breath*0.012);
-  explorer.headPivot.position.y=2.42+breath*0.010+Math.sin(t*0.42)*0.006*idleAmount;
-  explorer.headPivot.rotation.x=Math.sin(t*0.38+0.5)*0.028*idleAmount;
-  explorer.headPivot.rotation.y=Math.sin(t*0.24)*0.052*idleAmount;
-  explorer.headPivot.rotation.z=Math.sin(t*0.31+0.7)*0.012*idleAmount;
+  explorer.headPivot.position.y=explorer.headBaseY+breath*0.010+Math.sin(t*0.42)*0.006*idleAmount;
+  const spineTarget=explorer.joints.spine.target;
+  explorer.joints.neck.set(
+    -spineTarget.x*0.42+Math.sin(t*0.38+0.5)*0.028*idleAmount,
+    Math.sin(t*0.24)*0.052*idleAmount,
+    Math.sin(t*0.31+0.7)*0.012*idleAmount
+  );
   explorer.backpack.position.y=1.78+breath*0.008;
   explorer.packTop.position.y=2.26+breath*0.008;
 
@@ -1487,19 +1661,41 @@ function updateExplorerLife(dt,speed){
 
   const idleSway=Math.sin(t*0.83)*0.026*idleAmount;
   for(let side=0;side<2;side++){
-    explorer.armPivots[side].rotation.z=THREE.MathUtils.lerp(
-      explorer.armPivots[side].rotation.z,(side===0?idleSway:-idleSway*0.82),Math.min(1,dt*2.8)
+    const shoulderTarget=explorer.joints.shoulders[side].target;
+    const elbowTarget=explorer.joints.elbows[side].target;
+    const wristTarget=explorer.joints.wrists[side].target;
+    explorer.joints.shoulders[side].set(
+      shoulderTarget.x,shoulderTarget.y,
+      THREE.MathUtils.lerp(shoulderTarget.z,side===0?idleSway:-idleSway*0.82,idleAmount)
     );
-    explorer.elbowPivots[side].rotation.x=THREE.MathUtils.lerp(
-      explorer.elbowPivots[side].rotation.x,0.16+Math.sin(t*0.64+side*0.8)*0.035*idleAmount,Math.min(1,dt*2.4)
+    explorer.joints.elbows[side].set(
+      THREE.MathUtils.lerp(elbowTarget.x,0.16+Math.sin(t*0.64+side*0.8)*0.035,idleAmount),
+      elbowTarget.y,elbowTarget.z
     );
-    explorer.wristPivots[side].rotation.z=THREE.MathUtils.lerp(
-      explorer.wristPivots[side].rotation.z,Math.sin(t*0.55+side)*0.025*idleAmount,Math.min(1,dt*2.2)
+    explorer.joints.wrists[side].set(
+      wristTarget.x,wristTarget.y,
+      THREE.MathUtils.lerp(wristTarget.z,Math.sin(t*0.55+side)*0.025,idleAmount)
     );
+    explorer.joints.fingers[side].forEach((digit,index)=>{
+      const curl=THREE.MathUtils.lerp(
+        digit.base.target.x,
+        0.08+Math.sin(t*0.72+side+index*0.42)*0.018,
+        idleAmount
+      );
+      digit.base.set(curl,0,0);
+      digit.distal.set(curl*0.68,0,0);
+    });
   }
   const locomotionLean=THREE.MathUtils.clamp(-speed*0.035,-0.085,0);
   const breathingSway=Math.sin(t*0.52)*0.006*idleAmount;
-  explorer.root.rotation.x=THREE.MathUtils.lerp(explorer.root.rotation.x,locomotionLean+breathingSway,Math.min(1,dt*2.2));
+  const sideBalance=THREE.MathUtils.clamp(-velocity.x*0.025,-0.10,0.10);
+  explorer.joints.spine.set(locomotionLean+breathingSway,0,sideBalance);
+  explorer.joints.thorax.set(-locomotionLean*0.18+breath*0.006,0,-sideBalance*0.32);
+  explorer.joints.pelvis.set(
+    Math.sin(walkPhase*2)*0.018*(1-idleAmount),
+    0,
+    THREE.MathUtils.clamp(velocity.x*0.012,-0.045,0.045)
+  );
 }
 
 const cameraTarget=new THREE.Vector3();
@@ -1869,6 +2065,7 @@ function animate() {
   if(started&&!paused&&!journalOpen){
     speed=updatePlayer(dt);
     updateExplorerLife(dt,speed);
+    for(const joint of explorer.allJointControllers)joint.update(dt);
   }
   updateCamera(dt);
   updateScene(dt,speed);
