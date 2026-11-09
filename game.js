@@ -338,12 +338,17 @@ function createOcean() {
     "float G=geometrySchlickGGX(nDotV,roughness)*geometrySchlickGGX(max(nDotL,0.001),roughness);",
     "vec3 F=vec3(0.02037)+(vec3(1.0)-vec3(0.02037))*pow(1.0-vDotH,5.0);",
     "vec3 directSpec=D*G*F/max(4.0*nDotV*max(nDotL,0.001),0.001)*nDotL*vec3(1.0,0.86,0.68)*2.2;",
+    "float mirrorSun=max(dot(reflect(-L,N),V),0.0);",
+    "float sunStreak=pow(mirrorSun,78.0);",
+    "float broadSun=pow(mirrorSun,20.0);",
+    "float glintBreakup=0.52+0.92*noise(p*0.16+vec2(-uTime*0.12,uTime*0.08));",
+    "vec3 movingSunGlints=vec3(1.0,0.86,0.69)*(sunStreak*1.05+broadSun*0.11)*glintBreakup;",
     // Beer-Lambert-inspired attenuation plus blue-green in-scattering color the transmitted light.
     "float opticalPath=2.8/max(nDotV,0.14);",
     "vec3 attenuation=exp(-vec3(0.23,0.075,0.030)*opticalPath);",
-    "vec3 waterBody=mix(vec3(0.002,0.018,0.030),vec3(0.010,0.105,0.135),1.0-dot(attenuation,vec3(0.3333)));",
-    "waterBody+=vec3(0.002,0.025,0.030)*nDotL;",
-    "vec3 water=mix(waterBody,reflected,fresnel)+directSpec;",
+    "vec3 waterBody=mix(vec3(0.008,0.050,0.067),vec3(0.026,0.175,0.205),1.0-dot(attenuation,vec3(0.3333)));",
+    "waterBody+=vec3(0.008,0.043,0.050)*nDotL;",
+    "vec3 water=mix(waterBody,reflected,fresnel)+directSpec+movingSunGlints;",
     // Shallow transmitted view of the sand with refractive caustic light drifting across it.
     "vec2 sandUV=p*0.19;",
     "float sandRidge=0.5+0.5*sin(sandUV.y*13.0+sin(sandUV.x*4.2+uTime*0.08)*1.65);",
@@ -377,7 +382,7 @@ function createOcean() {
     "float distanceToCamera=length(cameraPosition-vWorldPos);",
     "float fog=1.0-exp(-pow(distanceToCamera*0.00052,2.0));",
     "vec3 horizon=vec3(0.50,0.58,0.57);water=mix(water,horizon,clamp(fog,0.0,0.82));",
-    "gl_FragColor=vec4(water,mix(1.0,0.42,uUnderwaterView));",
+    "gl_FragColor=vec4(water,1.0);",
     "#include <tonemapping_fragment>",
     "#include <colorspace_fragment>",
     "}"
@@ -401,8 +406,8 @@ function createOcean() {
     vertexShader,
     fragmentShader,
     side: THREE.DoubleSide,
-    transparent: true,
-    depthWrite: false
+    transparent: false,
+    depthWrite: true
   });
   const ocean = new THREE.Mesh(geometry, material);
   ocean.frustumCulled = false;
@@ -712,7 +717,7 @@ function updateSpray(dt) {
 
 const ripplePool=[];
 for(let i=0;i<10;i++){
-  const material=new THREE.MeshBasicMaterial({color:0xc8f8ff,transparent:true,opacity:0.0,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
+  const material=new THREE.MeshBasicMaterial({color:0x9edee2,transparent:true,opacity:0.0,side:THREE.DoubleSide,depthWrite:false,blending:THREE.AdditiveBlending});
   const mesh=new THREE.Mesh(new THREE.TorusGeometry(0.45,0.018,8,48),material);
   mesh.rotation.x=-Math.PI/2;
   mesh.visible=false;
@@ -724,7 +729,7 @@ function spawnRipple() {
   const x=player.position.x+(Math.random()-.5)*0.95;
   const z=player.position.z+(Math.random()-.5)*1.1;
   const r=ripplePool[rippleCursor++%ripplePool.length];
-  r.life=1.0;r.mesh.visible=true;r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.025,z);r.mesh.scale.setScalar(0.18);r.material.opacity=0.54;r.mesh.rotation.z=Math.random()*Math.PI;
+  r.life=1.0;r.mesh.visible=true;r.mesh.position.set(x,waveHeight(x,z,simulationTime)+0.025,z);r.mesh.scale.setScalar(0.18);r.material.opacity=0.30;r.mesh.rotation.z=Math.random()*Math.PI;
 }
 function updateRipples(dt) {
   for(const r of ripplePool){
@@ -732,7 +737,7 @@ function updateRipples(dt) {
     r.life-=dt*0.85;
     const age=1-r.life;
     r.mesh.scale.setScalar(0.18+age*3.0);
-    r.material.opacity=Math.max(0,r.life)*0.54;
+    r.material.opacity=Math.max(0,r.life)*0.30;
     if(r.life<=0)r.mesh.visible=false;
   }
 }
@@ -888,6 +893,11 @@ function updateScene(dt, speed) {
   const surfaceY = waveHeight(player.position.x, player.position.z, simulationTime);
   const underwater = firstPerson && camera.position.y < surfaceY;
   ocean.material.uniforms.uUnderwaterView.value = underwater ? 1 : 0;
+  if (ocean.material.transparent !== underwater) {
+    ocean.material.transparent = underwater;
+    ocean.material.depthWrite = !underwater;
+    ocean.material.needsUpdate = true;
+  }
   caustics.material.uniforms.uVisibility.value = underwater ? 1 : 0;
   underwaterOverlay.style.opacity = underwater ? "1" : "0";
   document.body.classList.toggle("tide-near", tide.distance < 260);
