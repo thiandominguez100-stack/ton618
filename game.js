@@ -59,6 +59,10 @@ let lastPointer = { x: 0, y: 0 };
 let cameraYaw = 0.12;
 let cameraPitch = 0.19;
 const cameraDistance = 13.5;
+const CAMERA_MOUSE_SENSITIVITY = 0.0046;
+const CAMERA_PITCH_SENSITIVITY = 0.0032;
+const CAMERA_THIRD_PERSON_RESPONSE = 8.2;
+const CAMERA_FIRST_PERSON_RESPONSE = 18.0;
 let firstPerson = false;
 const keys = Object.create(null);
 const velocity = new THREE.Vector3();
@@ -657,6 +661,19 @@ function makeExplorer() {
   const glass = new THREE.MeshPhysicalMaterial({ color: 0x7ca7b7, metalness: 0.68, roughness: 0.12, transparent: true, opacity: 0.78, clearcoat: 1, clearcoatRoughness: 0.05 });
   const visor = new THREE.MeshStandardMaterial({ color: 0x06121d, metalness: 0.92, roughness: 0.08 });
   const glow = new THREE.MeshBasicMaterial({ color: 0x9deeff });
+  const trim = mat(0x9eafb0,0.34,0.48);
+  const panel = mat(0x263d48,0.52,0.34);
+  const rubber = mat(0x101c22,0.82,0.02);
+  const amberGlow = new THREE.MeshBasicMaterial({color:0xffb66d});
+  const softGlow = new THREE.MeshBasicMaterial({color:0x9deeff});
+  const visorGlint = new THREE.MeshBasicMaterial({color:0xd9f7ff,transparent:true,opacity:0.34,depthWrite:false});
+
+  const addPart=(geometry,material,position,parent=root)=>{
+    const mesh=new THREE.Mesh(geometry,material);
+    mesh.position.set(position[0],position[1],position[2]);
+    parent.add(mesh);
+    return mesh;
+  };
 
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.40,0.48,1.12,18,1), suit);
   torso.position.y = 1.66; root.add(torso);
@@ -689,6 +706,72 @@ function makeExplorer() {
     shoulder.position.set(side*0.52,2.02,0);root.add(shoulder);
   }
 
+  const neckSeal=addPart(new THREE.CylinderGeometry(0.315,0.34,0.16,24),rubber,[0,2.42,0]);
+  const neckRing=addPart(new THREE.TorusGeometry(0.325,0.035,8,36),trim,[0,2.42,0]);
+  neckRing.rotation.x=Math.PI/2;
+  const helmetLowerRing=addPart(new THREE.TorusGeometry(0.375,0.022,8,40),orange,[0,2.47,0]);
+  helmetLowerRing.rotation.x=Math.PI/2;
+
+  for(const side of [-1,1]){
+    const commPod=addPart(new THREE.CylinderGeometry(0.105,0.12,0.16,14),panel,[side*0.39,2.72,0.035]);
+    commPod.rotation.z=Math.PI/2;
+    const commCap=addPart(new THREE.SphereGeometry(0.09,12,10),orange,[side*0.47,2.72,0.035]);
+    commCap.scale.set(0.45,1,1);
+  }
+  const visorReflection=addPart(new THREE.SphereGeometry(0.12,16,12),visorGlint,[-0.12,2.83,-0.292]);
+  visorReflection.scale.set(0.85,0.22,0.10);
+  visorReflection.rotation.z=-0.28;
+  const visorStatus=addPart(new THREE.SphereGeometry(0.035,10,8),glow,[0.27,2.58,-0.285]);
+
+  const chestSeal=addPart(new THREE.CylinderGeometry(0.37,0.39,0.13,24),rubber,[0,2.34,0]);
+  const chestCollar=addPart(new THREE.TorusGeometry(0.36,0.028,8,40),trim,[0,2.35,0]);
+  chestCollar.rotation.x=Math.PI/2;
+
+  const chestArmor=addPart(new THREE.BoxGeometry(0.52,0.48,0.075),panel,[0,1.80,-0.445]);
+  const chestArmorEdge=addPart(new THREE.BoxGeometry(0.46,0.045,0.025),orange,[0,2.045,-0.493]);
+  const chestScreen=addPart(new THREE.BoxGeometry(0.27,0.17,0.025),dark,[0,1.84,-0.495]);
+  const screenFace=addPart(new THREE.BoxGeometry(0.22,0.115,0.012),mat(0x315a62,0.28,0.2),[0,1.85,-0.512]);
+  for(let n=0;n<3;n++){
+    addPart(new THREE.BoxGeometry(0.035,0.018,0.009),n===0?amberGlow:softGlow,[-0.065+n*0.065,1.85,-0.522]);
+  }
+  addPart(new THREE.BoxGeometry(0.16,0.018,0.012),glow,[0,1.75,-0.522]);
+  for(const side of [-1,1]){
+    addPart(new THREE.SphereGeometry(0.055,12,10),side===-1?amberGlow:softGlow,[side*0.205,1.98,-0.49]);
+    const harness=new THREE.Mesh(new THREE.BoxGeometry(0.075,0.75,0.045),orange);
+    harness.position.set(side*0.24,1.78,-0.418);
+    harness.rotation.z=side*-0.16;
+    root.add(harness);
+    const hipPouch=addPart(new THREE.BoxGeometry(0.20,0.24,0.18),panel,[side*0.39,1.18,-0.02]);
+    const pouchLatch=addPart(new THREE.BoxGeometry(0.10,0.035,0.025),orange,[side*0.39,1.22,-0.122]);
+  }
+
+  const packFrame=addPart(new THREE.BoxGeometry(0.79,0.98,0.12),rubber,[0,1.78,0.685]);
+  const packAccess=addPart(new THREE.BoxGeometry(0.49,0.48,0.045),panel,[0,1.81,0.765]);
+  const packDisplay=addPart(new THREE.BoxGeometry(0.32,0.18,0.02),dark,[0,1.91,0.792]);
+  for(let n=0;n<4;n++){
+    addPart(new THREE.BoxGeometry(0.31,0.027,0.018),trim,[0,1.69-n*0.055,0.793]);
+  }
+  for(const side of [-1,1]){
+    const rail=addPart(new THREE.BoxGeometry(0.055,0.78,0.27),orange,[side*0.37,1.78,0.50]);
+    const packLight=addPart(new THREE.BoxGeometry(0.035,0.10,0.018),glow,[side*0.30,2.16,0.80]);
+    const regulator=addPart(new THREE.CylinderGeometry(0.075,0.075,0.11,12),trim,[side*0.34,1.36,0.55]);
+    regulator.rotation.x=Math.PI/2;
+
+    const hoseCurve=new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side*0.30,2.22,0.63),
+      new THREE.Vector3(side*0.48,2.37,0.45),
+      new THREE.Vector3(side*0.55,2.24,0.15),
+      new THREE.Vector3(side*0.49,2.02,-0.04)
+    ]);
+    const hose=new THREE.Mesh(new THREE.TubeGeometry(hoseCurve,22,0.035,8,false),rubber);
+    root.add(hose);
+    const hoseCoupler=addPart(new THREE.CylinderGeometry(0.065,0.065,0.10,12),orange,[side*0.49,2.02,-0.04]);
+    hoseCoupler.rotation.x=Math.PI/2;
+  }
+
+  const lowerChestPort=addPart(new THREE.CylinderGeometry(0.075,0.075,0.05,14),orange,[0,1.47,-0.43]);
+  lowerChestPort.rotation.x=Math.PI/2;
+
   const legPivots=[];
   for(const side of [-1,1]){
     const pivot=new THREE.Group();pivot.position.set(side*0.22,0.94,0);root.add(pivot);
@@ -700,10 +783,18 @@ function makeExplorer() {
     kneeGuard.position.set(0,-0.48,-0.115);kneeGuard.scale.set(0.92,0.78,0.34);pivot.add(kneeGuard);
     const shin=new THREE.Mesh(new THREE.CylinderGeometry(0.125,0.15,0.49,14),suit);
     shin.position.y=-0.735;pivot.add(shin);
+    const shinGuard=new THREE.Mesh(new THREE.BoxGeometry(0.19,0.32,0.07),panel);
+    shinGuard.position.set(0,-0.73,-0.14);pivot.add(shinGuard);
+    const shinIndicator=new THREE.Mesh(new THREE.BoxGeometry(0.08,0.025,0.018),glow);
+    shinIndicator.position.set(0,-0.69,-0.18);pivot.add(shinIndicator);
     const shinSeal=new THREE.Mesh(new THREE.TorusGeometry(0.132,0.027,7,18),orange);
-    shinSeal.position.y=-0.89;pivot.add(shinSeal);
+    shinSeal.position.y=-0.89;shinSeal.rotation.x=Math.PI/2;pivot.add(shinSeal);
     const boot=new THREE.Mesh(new THREE.BoxGeometry(0.32,0.24,0.48),dark);
     boot.position.set(0,-0.88,-0.06);pivot.add(boot);
+    const bootSole=new THREE.Mesh(new THREE.BoxGeometry(0.34,0.065,0.50),rubber);
+    bootSole.position.set(0,-1.01,-0.065);pivot.add(bootSole);
+    const toeCap=new THREE.Mesh(new THREE.BoxGeometry(0.29,0.11,0.13),trim);
+    toeCap.position.set(0,-0.91,-0.285);pivot.add(toeCap);
     const bootStripe=new THREE.Mesh(new THREE.BoxGeometry(0.28,0.045,0.12),glow);
     bootStripe.position.set(0,-0.82,-0.26);pivot.add(bootStripe);
     legPivots.push(pivot);
@@ -715,8 +806,14 @@ function makeExplorer() {
     arm.position.y=-0.36;pivot.add(arm);
     const elbow=new THREE.Mesh(new THREE.SphereGeometry(0.16,12,10),orange);
     elbow.position.y=-0.68;pivot.add(elbow);
+    const forearmGuard=new THREE.Mesh(new THREE.BoxGeometry(0.22,0.30,0.075),panel);
+    forearmGuard.position.set(0,-0.48,-0.142);pivot.add(forearmGuard);
+    const wristSeal=new THREE.Mesh(new THREE.TorusGeometry(0.145,0.032,7,18),orange);
+    wristSeal.position.set(0,-0.72,0);wristSeal.rotation.x=Math.PI/2;pivot.add(wristSeal);
     const glove=new THREE.Mesh(new THREE.SphereGeometry(0.17,12,10),dark);
     glove.position.set(0,-0.82,-0.03);glove.scale.set(0.85,1.0,0.9);pivot.add(glove);
+    const glovePlate=new THREE.Mesh(new THREE.BoxGeometry(0.16,0.075,0.10),trim);
+    glovePlate.position.set(0,-0.82,-0.17);pivot.add(glovePlate);
     armPivots.push(pivot);
   }
   const chestLight=new THREE.Mesh(new THREE.BoxGeometry(0.18,0.12,0.035),glow);
@@ -887,8 +984,8 @@ function updatePlayer(dt) {
     walkPhase += dt * (2.2 + horizontalSpeed * 2.5);
     explorer.legPivots[0].rotation.x = Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
     explorer.legPivots[1].rotation.x = -Math.sin(walkPhase) * (lowView ? 0.26 : 0.42);
-    explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.22;
-    explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.22;
+    explorer.armPivots[0].rotation.x = -Math.sin(walkPhase) * 0.34;
+    explorer.armPivots[1].rotation.x = Math.sin(walkPhase) * 0.34;
     splashTimer += dt;
     rippleTimer += dt;
     if (splashTimer > (horizontalSpeed > 2.3 ? 0.25 : 0.34)) {
@@ -940,7 +1037,7 @@ function updateCamera(dt) {
     cameraTarget.set(player.position.x, targetY, player.position.z);
   }
   cameraDesired.y = Math.max(cameraDesired.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
-  camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? 12 : 4.5)));
+  camera.position.lerp(cameraDesired, Math.min(1, dt * (firstPerson ? CAMERA_FIRST_PERSON_RESPONSE : CAMERA_THIRD_PERSON_RESPONSE)));
   camera.position.y = Math.max(camera.position.y, GROUND_Y + CAMERA_GROUND_CLEARANCE);
   camera.lookAt(cameraTarget);
   // Let the horizon gently respond to the passing swell instead of feeling locked in place.
@@ -1082,8 +1179,8 @@ renderer.domElement.addEventListener("pointermove",event=>{
   if(pointerLocked){dx=event.movementX||0;dy=event.movementY||0;}
   else if(dragging){dx=event.clientX-lastPointer.x;dy=event.clientY-lastPointer.y;lastPointer.x=event.clientX;lastPointer.y=event.clientY;}
   else return;
-  cameraYaw-=dx*0.0028;
-  cameraPitch=THREE.MathUtils.clamp(cameraPitch-dy*0.0018,-0.48,0.58);
+  cameraYaw-=dx*CAMERA_MOUSE_SENSITIVITY;
+  cameraPitch=THREE.MathUtils.clamp(cameraPitch-dy*CAMERA_PITCH_SENSITIVITY,-0.58,0.68);
 });
 renderer.domElement.addEventListener("pointerup",()=>{dragging=false;});
 renderer.domElement.addEventListener("pointercancel",()=>{dragging=false;});
