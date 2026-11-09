@@ -93,6 +93,7 @@ const velocity = new THREE.Vector3();
 let verticalVelocity = 0;
 let jumpHeight = 0;
 let isAirborne = false;
+let landingImpact = 0;
 let jumpRequested = false;
 let spaceStrokeRequested = false;
 let walkPhase = 0;
@@ -1591,6 +1592,7 @@ function updatePlayer(dt) {
       jumpHeight=0;
       verticalVelocity=0;
       isAirborne=false;
+      landingImpact=1.0;
       splashTimer=0;
       const landingX=player.position.x;
       const landingZ=player.position.z;
@@ -1703,6 +1705,7 @@ function updatePlayer(dt) {
 
 function updateExplorerLife(dt,speed){
   const t=simulationTime;
+  landingImpact=Math.max(0,landingImpact-dt*2.65);
   const idleAmount=1-THREE.MathUtils.smoothstep(speed,0.10,0.85);
   const breath=Math.sin(t*1.62)*0.58+Math.sin(t*0.79+0.6)*0.22;
 
@@ -1790,6 +1793,24 @@ function updateExplorerLife(dt,speed){
     explorer.joints.thorax.set(0.02,0,0);
   }
 }
+  // Landing compression travels from the knees through the pelvis and torso,
+  // then settles smoothly instead of snapping back to the idle pose.
+  if(!isAirborne&&landingImpact>0.001){
+    const impact=landingImpact;
+    explorer.joints.pelvis.set(-impact*0.055,0,explorer.joints.pelvis.target.z);
+    explorer.joints.spine.set(explorer.joints.spine.target.x+impact*0.045,0,explorer.joints.spine.target.z);
+    explorer.joints.thorax.set(explorer.joints.thorax.target.x-impact*0.018,0,explorer.joints.thorax.target.z);
+    for(let side=0;side<2;side++){
+      explorer.joints.knees[side].set(0.035+impact*0.28,0,0);
+      explorer.joints.ankles[side].set(-impact*0.10,0,0);
+      explorer.joints.toes[side].set(impact*0.035,0,0);
+      explorer.joints.shoulders[side].set(
+        explorer.joints.shoulders[side].target.x-impact*0.075,
+        explorer.joints.shoulders[side].target.y,
+        explorer.joints.shoulders[side].target.z
+      );
+    }
+  }
 
 const cameraTarget=new THREE.Vector3();
 const cameraDesired=new THREE.Vector3();
