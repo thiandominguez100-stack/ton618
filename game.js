@@ -28,6 +28,10 @@ const scanProgressFill = document.getElementById("scanProgressFill");
 const scanToast = document.getElementById("scanToast");
 const scanToastTitle = document.getElementById("scanToastTitle");
 const scanToastDetail = document.getElementById("scanToastDetail");
+const signalNav = document.getElementById("signalNav");
+const signalNavArrow = document.getElementById("signalNavArrow");
+const signalNavTitle = document.getElementById("signalNavTitle");
+const signalNavDistance = document.getElementById("signalNavDistance");
 
 const MOBILE = matchMedia("(max-width: 760px)").matches;
 const GROUND_Y = -1.15;
@@ -1141,6 +1145,25 @@ function updateExpeditionSystem(dt,speed) {
   }
   expeditionState.nearest = nearest;
 
+  if (nearest) {
+    const dx = nearest.record.position.x-player.position.x;
+    const dz = nearest.record.position.z-player.position.z;
+    const distance = nearest.distance;
+    const bearing = (Math.atan2(dx,-dz)+Math.PI*2)%(Math.PI*2);
+    const desiredYaw = Math.atan2(-dx,-dz);
+    const relativeYaw = Math.atan2(Math.sin(desiredYaw-cameraYaw),Math.cos(desiredYaw-cameraYaw));
+    const compass = ["N","NE","E","SE","S","SO","O","NO"];
+    const direction = compass[Math.round(bearing/(Math.PI/4))%8];
+    signalNav.classList.add("active");
+    signalNavArrow.style.transform = "rotate("+(-relativeYaw)+"rad)";
+    signalNavDistance.textContent = Math.round(distance)+" m · "+direction;
+    signalNavTitle.textContent = distance < 31 ? "SEÑAL DETECTADA" : "SEÑAL MÁS CERCANA";
+  } else {
+    signalNav.classList.remove("active");
+    signalNavTitle.textContent = "TODAS LAS SEÑALES REGISTRADAS";
+    signalNavDistance.textContent = "EXPEDICIÓN COMPLETADA";
+  }
+
   const activeRecord = expeditionState.active;
   if (activeRecord) {
     const distance = Math.hypot(player.position.x-activeRecord.position.x,player.position.z-activeRecord.position.z);
@@ -1150,11 +1173,12 @@ function updateExpeditionSystem(dt,speed) {
       scanProgressWrap.classList.remove("visible");
       scanAction.textContent = "SEÑAL PERDIDA · ACÉRCATE DE NUEVO";
     } else {
+      const canAdvanceScan = started && !paused && !journalOpen;
       const stable = speed < 0.58;
-      if (stable) expeditionState.progress = Math.min(1,expeditionState.progress+dt/3.1);
+      if (stable && canAdvanceScan) expeditionState.progress = Math.min(1,expeditionState.progress+dt/3.1);
       scanTitle.textContent = activeRecord.title;
-      scanDetail.textContent = stable ? "Midiendo corrientes y resonancia local…" : "Detente para estabilizar el escáner.";
-      scanAction.textContent = stable ? "ANALIZANDO…" : "REDUCE EL MOVIMIENTO";
+      scanDetail.textContent = !canAdvanceScan ? "Escaneo suspendido mientras consultas el diario o estás en pausa." : stable ? "Midiendo corrientes y resonancia local…" : "Detente para estabilizar el escáner.";
+      scanAction.textContent = !canAdvanceScan ? "ANÁLISIS EN ESPERA" : stable ? "ANALIZANDO…" : "REDUCE EL MOVIMIENTO";
       scanProgressFill.style.width = (expeditionState.progress*100).toFixed(1)+"%";
       if (expeditionState.progress >= 1) completeExpeditionScan(activeRecord);
     }
