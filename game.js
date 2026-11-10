@@ -90,6 +90,13 @@ const CAMERA_LOOK_THIRD_RESPONSE = 14.5;
 const CAMERA_LOOK_FIRST_RESPONSE = 23.0;
 let firstPerson = false;
 const keys = Object.create(null);
+let shipMode = "ocean"; // ocean | interior | flight
+let shipDocked = true;
+let shipLandingRequested = false;
+let shipRoll = 0;
+const shipVelocity = new THREE.Vector3();
+const interiorVelocity = new THREE.Vector3();
+const interiorLocalPosition = new THREE.Vector3(0,1.52,2.9);
 const velocity = new THREE.Vector3();
 let verticalVelocity = 0;
 let jumpHeight = 0;
@@ -1462,6 +1469,102 @@ function createMillerSite() {
   for(let rung=0;rung<6;rung++){
     addCylinder(ship,0.04,0.04,0.92,materials.orange,[-3.08,0.48+rung*0.22,1.35],[Math.PI/2,0,0],10);
   }
+
+  // Walkable crew compartment: airlock, central aisle, pilot station and
+  // equipment bay. The shell is hidden only while the player is inside.
+  const cabinInterior=new THREE.Group();ship.add(cabinInterior);
+  addBox(cabinInterior,new THREE.BoxGeometry(3.42,0.14,10.45),materials.deck,[0,1.43,0]);
+  addBox(cabinInterior,new THREE.BoxGeometry(3.24,0.035,10.12),materials.deckLight,[0,1.515,0]);
+  for(let z=-4.85;z<=4.85;z+=0.55){
+    addBox(cabinInterior,new THREE.BoxGeometry(3.12,0.018,0.025),materials.darkMetal,[0,1.54,z]);
+  }
+  // Side walls are deliberately split around the port airlock opening.
+  for(const side of [-1,1]){
+    addBox(cabinInterior,new THREE.BoxGeometry(0.13,1.82,5.7),materials.underside,[side*1.70,2.43,-2.2]);
+    addBox(cabinInterior,new THREE.BoxGeometry(0.13,1.82,2.35),materials.underside,[side*1.70,2.43,3.95]);
+    addBox(cabinInterior,new THREE.BoxGeometry(0.13,0.22,1.3),materials.metal,[side*1.70,3.34,1.15]);
+    const sideWindow=new THREE.Mesh(new THREE.PlaneGeometry(1.28,0.82),materials.glass);
+    sideWindow.position.set(side*1.625,2.78,0.05);
+    sideWindow.rotation.y=side*Math.PI/2;
+    cabinInterior.add(sideWindow);
+    const windowFrame=new THREE.Mesh(new THREE.BoxGeometry(0.08,1.02,1.48),materials.metal);
+    windowFrame.position.set(side*1.69,2.78,0.05);cabinInterior.add(windowFrame);
+    addBox(cabinInterior,new THREE.BoxGeometry(0.045,1.65,0.10),materials.orange,[side*1.61,2.38,1.82]);
+    for(let z=-4.6;z<=4.6;z+=2.3){
+      addBox(cabinInterior,new THREE.BoxGeometry(0.18,0.08,0.18),materials.orange,[side*1.52,1.68,z]);
+    }
+  }
+  addBox(cabinInterior,new THREE.BoxGeometry(3.25,0.14,0.16),materials.metal,[0,3.30,0.8]);
+  addBox(cabinInterior,new THREE.BoxGeometry(3.25,0.14,0.16),materials.metal,[0,3.30,-2.5]);
+  for(const x of [-1.35,1.35]){
+    addBox(cabinInterior,new THREE.BoxGeometry(0.10,0.16,9.2),materials.metal,[x,3.24,0]);
+  }
+  // Airlock frame and inner pressure door.
+  addBox(cabinInterior,new THREE.BoxGeometry(0.10,1.82,0.14),materials.orange,[-1.58,2.42,0.48]);
+  addBox(cabinInterior,new THREE.BoxGeometry(0.10,1.82,0.14),materials.orange,[-1.58,2.42,2.0]);
+  addBox(cabinInterior,new THREE.BoxGeometry(0.12,0.14,1.65),materials.metal,[-1.58,3.34,1.24]);
+  const innerAirlockDoor=new THREE.Group();
+  innerAirlockDoor.position.set(-1.55,2.42,1.24);cabinInterior.add(innerAirlockDoor);
+  addBox(innerAirlockDoor,new THREE.BoxGeometry(0.10,1.68,1.34),materials.hullLight,[0,0,0]);
+  addBox(innerAirlockDoor,new THREE.BoxGeometry(0.045,1.36,0.07),materials.orange,[0.07,0,0]);
+  addBox(innerAirlockDoor,new THREE.BoxGeometry(0.045,0.16,0.46),materials.darkMetal,[0.08,0.0,0.30]);
+  // Forward pilot station with backlit multi-function displays.
+  const dash=addBox(cabinInterior,new THREE.BoxGeometry(3.18,0.48,0.48),materials.darkMetal,[0,2.26,-3.68],[0.13,0,0]);
+  const makeScreen=(label,subline)=>{
+    const canvas=document.createElement("canvas");canvas.width=640;canvas.height=360;
+    const ctx=canvas.getContext("2d");
+    ctx.fillStyle="#071722";ctx.fillRect(0,0,640,360);
+    ctx.strokeStyle="#4c9db0";ctx.lineWidth=5;ctx.strokeRect(12,12,616,336);
+    ctx.fillStyle="#bceef2";ctx.font="700 34px Arial";ctx.fillText(label,34,66);
+    ctx.fillStyle="#71c6dc";ctx.font="22px monospace";ctx.fillText(subline,34,106);
+    for(let n=0;n<5;n++){
+      const y=158+n*34;ctx.fillStyle=n===0?"#db9a5e":"#28566a";
+      ctx.fillRect(34,y,110+(n*73)%360,12);
+    }
+    ctx.strokeStyle="#3f8497";ctx.beginPath();ctx.arc(510,220,78,0,Math.PI*2);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(510,220);ctx.lineTo(510,155);ctx.moveTo(510,220);ctx.lineTo(565,244);ctx.stroke();
+    const texture=new THREE.CanvasTexture(canvas);texture.colorSpace=THREE.SRGBColorSpace;
+    texture.anisotropy=Math.min(renderer.capabilities.getMaxAnisotropy(),8);
+    return new THREE.MeshBasicMaterial({map:texture});
+  };
+  const screenSpecs=[
+    [-1.00,2.34,-3.945,0.78,0.30,"NAV","RADAR / SONAR"],
+    [0,2.37,-3.955,0.92,0.32,"M-01","FLIGHT SYSTEMS"],
+    [1.00,2.34,-3.945,0.78,0.30,"OCEAN","ALT / TIDE"]
+  ];
+  for(const [x,y,z,w,h,label,sub] of screenSpecs){
+    const screen=new THREE.Mesh(new THREE.PlaneGeometry(w,h),makeScreen(label,sub));
+    screen.position.set(x,y,z);cabinInterior.add(screen);
+  }
+  // Seat, shoulder supports, footwell and twin hand-control columns.
+  const pilotSeat=new THREE.Group();pilotSeat.position.set(0,1.56,-1.88);cabinInterior.add(pilotSeat);
+  addBox(pilotSeat,new THREE.BoxGeometry(0.98,0.18,0.86),materials.underside,[0,0.08,0.08]);
+  addBox(pilotSeat,new THREE.BoxGeometry(0.92,1.08,0.20),materials.deckLight,[0,0.56,0.42],[ -0.12,0,0]);
+  addBox(pilotSeat,new THREE.BoxGeometry(0.16,0.42,0.18),materials.orange,[-0.50,0.56,0.37]);
+  addBox(pilotSeat,new THREE.BoxGeometry(0.16,0.42,0.18),materials.orange,[0.50,0.56,0.37]);
+  addBox(pilotSeat,new THREE.BoxGeometry(0.76,0.11,0.42),materials.darkMetal,[0,-0.40,-0.38]);
+  for(const side of [-1,1]){
+    addCylinder(cabinInterior,0.07,0.10,0.62,materials.metal,[side*0.93,1.93,-2.72],[0,0,side*0.20],12);
+    const yoke=new THREE.Mesh(new THREE.TorusGeometry(0.23,0.035,8,28),materials.orange);
+    yoke.position.set(side*0.93,2.30,-2.72);yoke.rotation.x=0.25;cabinInterior.add(yoke);
+    addBox(cabinInterior,new THREE.BoxGeometry(0.36,0.08,0.12),materials.darkMetal,[side*0.93,2.30,-2.72]);
+  }
+  // Storage and environmental systems in the rear section.
+  for(const side of [-1,1]){
+    addBox(cabinInterior,new THREE.BoxGeometry(0.55,1.0,1.38),materials.underside,[side*1.20,2.05,3.55]);
+    addBox(cabinInterior,new THREE.BoxGeometry(0.46,0.48,0.08),materials.deckLight,[side*1.20,2.28,2.82]);
+    for(let n=0;n<4;n++){
+      addBox(cabinInterior,new THREE.BoxGeometry(0.32,0.055,0.045),n===0?materials.orange:materials.metal,
+        [side*1.20,1.96+n*0.16,2.76]);
+    }
+  }
+  const overheadLight=new THREE.PointLight(0x9bd9e8,1.25,13,1.6);
+  overheadLight.position.set(0,3.02,0);cabinInterior.add(overheadLight);
+  const cockpitLight=new THREE.PointLight(0x75bcd5,0.95,10,1.8);
+  cockpitLight.position.set(0,2.85,-3.2);cabinInterior.add(cockpitLight);
+  const cabinStatus=new THREE.Mesh(new THREE.BoxGeometry(0.54,0.12,0.06),materials.lightCyan);
+  cabinStatus.position.set(0,3.12,1.1);cabinInterior.add(cabinStatus);
+
   const hullLabel=new THREE.Mesh(new THREE.PlaneGeometry(2.55,0.58),
     new THREE.MeshBasicMaterial({map:makeLabelTexture("MILLER M-01","OCEAN EXPLORATION VESSEL")}));
   hullLabel.position.set(0,2.61,7.12);hullLabel.rotation.y=Math.PI;ship.add(hullLabel);
@@ -1478,10 +1581,215 @@ function createMillerSite() {
     addCylinder(sign,0.07,0.10,1.5,materials.metal,[side*1.05,-0.25,0],[0,0,0],12);
     addLight(sign,[side*1.05,1.68,0],materials.lightCyan,0.78,side);
   }
+  ship.userData.exteriorHull=mainHull;
+  ship.userData.exteriorBelly=belly;
+  ship.userData.cabinInterior=cabinInterior;
+  ship.userData.innerAirlockDoor=innerAirlockDoor;
+  ship.userData.pilotSeat=pilotSeat;
   return {root,platform,ship,lights:animatedLights};
 }
 
 const millerSite = createMillerSite();
+
+function setMillerInteriorVisible(visible){
+  const ship=millerSite.ship;
+  ship.userData.exteriorHull.visible=!visible;
+  ship.userData.exteriorBelly.visible=!visible;
+  ship.userData.cabinInterior.visible=visible;
+  if(ship.userData.innerAirlockDoor)ship.userData.innerAirlockDoor.rotation.y=visible?-1.18:0;
+}
+function setMillerPlayerWorldFromInterior(){
+  millerSite.ship.updateWorldMatrix(true,false);
+  const worldPosition=interiorLocalPosition.clone();
+  millerSite.ship.localToWorld(worldPosition);
+  player.position.copy(worldPosition);
+}
+function enterMillerInterior(){
+  if(!shipDocked)return;
+  shipMode="interior";
+  shipLandingRequested=false;
+  interiorLocalPosition.set(0,1.52,2.9);
+  interiorVelocity.set(0,0,0);
+  velocity.set(0,0,0);
+  firstPerson=true;
+  explorer.root.visible=false;
+  setMillerInteriorVisible(true);
+  setMillerPlayerWorldFromInterior();
+  cameraYaw=0.12;
+  cameraPitch=0.10;
+  cameraLookReady=false;
+  showMillerHint("M-01 · INTERIOR","Camina hasta el asiento de piloto. Pulsa F para tomar los controles.");
+}
+function exitMillerInterior(){
+  setMillerInteriorVisible(false);
+  shipMode="ocean";
+  firstPerson=false;
+  explorer.root.visible=true;
+  interiorVelocity.set(0,0,0);
+  velocity.set(0,0,0);
+  const exitPoint=millerSite.root.localToWorld(new THREE.Vector3(-10,0,27));
+  player.position.set(exitPoint.x,GROUND_Y+0.06,exitPoint.z);
+  explorer.root.rotation.y=0.12;
+  cameraLookReady=false;
+  showMillerHint("ESCLUSA ABIERTA","Has regresado al océano. La M-01 permanece en la plataforma.");
+}
+function showMillerHint(title,detail){
+  if(!millerApproach)return;
+  millerApproach.classList.add("visible");
+  const heading=millerApproach.querySelector("strong");
+  const distanceLabel=millerApproach.querySelector(".miller-approach-distance");
+  const message=millerApproach.querySelector(".miller-approach-detail");
+  if(heading)heading.textContent=title;
+  if(distanceLabel)distanceLabel.textContent="MILLER M-01";
+  if(message)message.textContent=detail;
+}
+function beginMillerFlight(){
+  const ship=millerSite.ship;
+  if(!shipDocked||shipMode!=="interior")return;
+  ship.updateWorldMatrix(true,false);
+  scene.attach(ship);
+  shipDocked=false;
+  shipMode="flight";
+  shipLandingRequested=false;
+  shipVelocity.set(0,0,0);
+  shipRoll=0;
+  ship.rotation.order="YXZ";
+  cameraYaw=ship.rotation.y;
+  cameraPitch=0.08;
+  firstPerson=true;
+  explorer.root.visible=false;
+  cameraLookReady=false;
+  showMillerHint("M-01 · SISTEMAS ACTIVOS","WASD volar · SHIFT acelerar · ESPACIO ascender · CTRL descender · F aterrizar");
+}
+function dockMillerShip(){
+  const ship=millerSite.ship;
+  millerSite.platform.updateWorldMatrix(true,false);
+  millerSite.platform.attach(ship);
+  ship.position.set(0,1.03,-1.0);
+  ship.rotation.set(0,0,0);
+  ship.rotation.order="XYZ";
+  shipDocked=true;
+  shipLandingRequested=false;
+  shipVelocity.set(0,0,0);
+  shipMode="interior";
+  interiorLocalPosition.set(0,1.52,-1.88);
+  interiorVelocity.set(0,0,0);
+  setMillerInteriorVisible(true);
+  setMillerPlayerWorldFromInterior();
+  firstPerson=true;
+  explorer.root.visible=false;
+  cameraLookReady=false;
+  showMillerHint("ATERRIZAJE COMPLETADO","M-01 asegurada. Camina hacia la esclusa para salir.");
+}
+function handleMillerInteraction(){
+  if(shipMode==="ocean"){
+    const distance=Math.hypot(player.position.x-MILLER_SITE_POSITION.x,player.position.z-MILLER_SITE_POSITION.z);
+    if(distance<20){
+      enterMillerInterior();
+    }else{
+      showMillerHint("MILLER M-01",Math.round(distance)+" m · Acércate a la pasarela para abordar.");
+    }
+    return;
+  }
+  if(shipMode==="interior"){
+    const seatDistance=Math.hypot(interiorLocalPosition.x,interiorLocalPosition.z+1.88);
+    const hatchDistance=Math.hypot(interiorLocalPosition.x+1.10,interiorLocalPosition.z-1.24);
+    if(seatDistance<1.45){
+      beginMillerFlight();
+    }else if(hatchDistance<1.75){
+      exitMillerInterior();
+    }else{
+      showMillerHint("INTERIOR · M-01","Busca el asiento de piloto o la esclusa lateral.");
+    }
+    return;
+  }
+  if(shipMode==="flight"){
+    const target=new THREE.Vector3(0,1.03,-1.0);
+    millerSite.platform.updateWorldMatrix(true,false);
+    millerSite.platform.localToWorld(target);
+    const horizontal=Math.hypot(millerSite.ship.position.x-target.x,millerSite.ship.position.z-target.z);
+    const vertical=Math.abs(millerSite.ship.position.y-target.y);
+    if(horizontal<145&&vertical<95){
+      shipLandingRequested=true;
+      showMillerHint("ATERRIZAJE ASISTIDO","La nave está alineando su trayectoria con la plataforma.");
+    }else{
+      showMillerHint("PLATAFORMA FUERA DE ALCANCE","Regresa hacia las luces del muelle antes de solicitar aterrizaje.");
+    }
+  }
+}
+function updateShipInterior(dt){
+  const ship=millerSite.ship;
+  const forwardInput=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);
+  const sideInput=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
+  const wish=new THREE.Vector3(sideInput,0,-forwardInput);
+  if(wish.lengthSq()>1)wish.normalize();
+  const response=wish.lengthSq()>0?7.2:5.4;
+  interiorVelocity.x+=(wish.x*2.25-interiorVelocity.x)*Math.min(1,response*dt);
+  interiorVelocity.z+=(wish.z*2.25-interiorVelocity.z)*Math.min(1,response*dt);
+  interiorLocalPosition.x=THREE.MathUtils.clamp(interiorLocalPosition.x+interiorVelocity.x*dt,-1.12,1.12);
+  interiorLocalPosition.z=THREE.MathUtils.clamp(interiorLocalPosition.z+interiorVelocity.z*dt,-4.7,4.62);
+  setMillerPlayerWorldFromInterior();
+  if(Math.hypot(interiorVelocity.x,interiorVelocity.z)>0.09){
+    explorer.root.rotation.y=Math.atan2(-interiorVelocity.x,-interiorVelocity.z);
+    walkPhase+=dt*4.2;
+  }
+  const speed=Math.hypot(interiorVelocity.x,interiorVelocity.z);
+  return speed;
+}
+function updateShipFlight(dt){
+  const ship=millerSite.ship;
+  if(ship.parent!==scene)scene.attach(ship);
+  if(shipLandingRequested){
+    millerSite.platform.updateWorldMatrix(true,false);
+    const target=new THREE.Vector3(0,1.03,-1.0);
+    millerSite.platform.localToWorld(target);
+    const delta=target.clone().sub(ship.position);
+    const distance=delta.length();
+    const desiredSpeed=Math.min(9,Math.max(1.2,distance*0.72));
+    const desiredVelocity=distance>0.001?delta.normalize().multiplyScalar(desiredSpeed):new THREE.Vector3();
+    shipVelocity.lerp(desiredVelocity,1-Math.exp(-1.75*dt));
+    ship.position.addScaledVector(shipVelocity,dt);
+    const dockQuaternion=millerSite.platform.getWorldQuaternion(new THREE.Quaternion());
+    ship.quaternion.slerp(dockQuaternion,1-Math.exp(-1.45*dt));
+    if(distance<0.90&&shipVelocity.length()<1.15){
+      dockMillerShip();
+      return 0;
+    }
+    player.position.copy(ship.position);
+    return shipVelocity.length();
+  }
+  const forwardInput=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0);
+  const sideInput=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
+  const verticalInput=(keys.Space?1:0)-((keys.ControlLeft||keys.ControlRight)?1:0);
+  const boost=keys.Sprint||keys.ShiftLeft||keys.ShiftRight;
+  const yawDiff=Math.atan2(Math.sin(cameraYaw-ship.rotation.y),Math.cos(cameraYaw-ship.rotation.y));
+  ship.rotation.y+=yawDiff*(1-Math.exp(-dt*4.8));
+  ship.rotation.x=THREE.MathUtils.lerp(ship.rotation.x,THREE.MathUtils.clamp(cameraPitch,-0.62,0.62),1-Math.exp(-dt*3.8));
+  const rollInput=(keys.KeyE?1:0)-(keys.KeyQ?1:0);
+  shipRoll=THREE.MathUtils.clamp(shipRoll+rollInput*dt*0.95,-0.55,0.55);
+  if(!rollInput)shipRoll*=Math.exp(-dt*1.6);
+  ship.rotation.z=THREE.MathUtils.lerp(ship.rotation.z,shipRoll,1-Math.exp(-dt*3.0));
+  ship.updateMatrixWorld(true);
+  const forward=new THREE.Vector3(0,0,-1).applyQuaternion(ship.quaternion);
+  const right=new THREE.Vector3(1,0,0).applyQuaternion(ship.quaternion);
+  const acceleration=boost?11.5:7.0;
+  shipVelocity.addScaledVector(forward,forwardInput*acceleration*dt);
+  shipVelocity.addScaledVector(right,sideInput*acceleration*0.72*dt);
+  shipVelocity.y+=verticalInput*(boost?10.0:7.2)*dt;
+  shipVelocity.multiplyScalar(Math.exp(-0.24*dt));
+  const maxSpeed=boost?42:27;
+  if(shipVelocity.length()>maxSpeed)shipVelocity.setLength(maxSpeed);
+  ship.position.addScaledVector(shipVelocity,dt);
+  const waterClearance=waveHeight(ship.position.x,ship.position.z,simulationTime)+1.75;
+  if(ship.position.y<waterClearance){
+    ship.position.y=waterClearance;
+    if(shipVelocity.y<0)shipVelocity.y=0;
+  }
+  ship.position.y=Math.min(ship.position.y,1250);
+  player.position.copy(ship.position);
+  return shipVelocity.length();
+}
+
 
 function updateMillerSite(dt) {
   const x=MILLER_SITE_POSITION.x,z=MILLER_SITE_POSITION.z;
@@ -1494,12 +1802,27 @@ function updateMillerSite(dt) {
   for(const light of millerSite.lights){
     light.material.emissiveIntensity=light.base*(0.88+0.12*Math.sin(simulationTime*1.7+light.phase));
   }
+  if(!millerApproach)return;
   const distance=Math.hypot(player.position.x-x,player.position.z-z);
-  if(distance<92){
+  const title=millerApproach.querySelector("strong");
+  const distanceLabel=millerApproach.querySelector(".miller-approach-distance");
+  const detail=millerApproach.querySelector(".miller-approach-detail");
+  if(shipMode==="interior"){
     millerApproach.classList.add("visible");
-    millerApproach.querySelector(".miller-approach-distance").textContent=Math.round(distance)+" m";
-    millerApproach.querySelector(".miller-approach-detail").textContent=
-      distance<22?"PASARELA DE EMBARQUE A LA VISTA":"SIGUE LAS LUCES DEL MUELLE";
+    if(title)title.textContent="INTERIOR · M-01";
+    if(distanceLabel)distanceLabel.textContent="CABINA / ESCLUSA";
+    const atSeat=Math.hypot(interiorLocalPosition.x,interiorLocalPosition.z+1.88)<1.35;
+    if(detail)detail.textContent=atSeat?"F · TOMAR CONTROLES":"WASD · CAMINAR / F · INTERACTUAR";
+  }else if(shipMode==="flight"){
+    millerApproach.classList.add("visible");
+    if(title)title.textContent=shipLandingRequested?"ACOPLAMIENTO AUTOMÁTICO":"PILOTAJE · M-01";
+    if(distanceLabel)distanceLabel.textContent=shipVelocity.length().toFixed(1)+" m/s";
+    if(detail)detail.textContent=shipLandingRequested?"SIGUIENDO GUÍA DE ATERRIZAJE":"WASD · VUELO / ESPACIO · ASCENDER / F · ATERRIZAR";
+  }else if(distance<92){
+    millerApproach.classList.add("visible");
+    if(title)title.textContent="MILLER M-01";
+    if(distanceLabel)distanceLabel.textContent=Math.round(distance)+" m";
+    if(detail)detail.textContent=distance<19?"F · ABORDAR NAVE":"SIGUE LAS LUCES DEL MUELLE";
   }else{
     millerApproach.classList.remove("visible");
   }
@@ -1916,6 +2239,8 @@ function updateRipples(dt){
 }
 
 function updatePlayer(dt) {
+  if(shipMode==="interior")return updateShipInterior(dt);
+  if(shipMode==="flight")return updateShipFlight(dt);
   const forwardInput = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const sideInput = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   const forward = new THREE.Vector3(-Math.sin(cameraYaw), 0, -Math.cos(cameraYaw));
@@ -2191,6 +2516,18 @@ const cameraLookSmoothed=new THREE.Vector3();
 let cameraLookReady=false;
 
 function updateCamera(dt) {
+  if(shipMode==="flight"){
+    const ship=millerSite.ship;
+    ship.updateWorldMatrix(true,false);
+    const desired=ship.localToWorld(new THREE.Vector3(0,2.90,-3.28));
+    const target=ship.localToWorld(new THREE.Vector3(0,2.78,-55));
+    const alpha=1-Math.exp(-20*Math.min(dt,0.05));
+    camera.position.lerp(desired,alpha);
+    cameraLookSmoothed.copy(target);
+    camera.lookAt(target);
+    cameraLookReady=true;
+    return;
+  }
   if (firstPerson) {
     const eyeY = player.position.y + ((keys.ControlLeft || keys.ControlRight) ? 0.30 : 1.42);
     cameraDesired.set(player.position.x, eyeY, player.position.z);
@@ -2494,12 +2831,17 @@ window.addEventListener("keydown",event=>{
     event.preventDefault();
     return;
   }
+  if(code==="KeyF"&&!event.repeat&&started&&!paused&&!journalOpen){
+    handleMillerInteraction();
+    event.preventDefault();
+    return;
+  }
   if(code==="KeyJ"&&!event.repeat&&started&&!paused){
     setJournalOpen(!journalOpen);
     event.preventDefault();
     return;
   }
-  if(code==="KeyE"&&!event.repeat&&started&&!paused&&!journalOpen){
+  if(code==="KeyE"&&shipMode!=="flight"&&!event.repeat&&started&&!paused&&!journalOpen){
     if(expeditionState.active){
       expeditionState.active=null;
       expeditionState.progress=0;
@@ -2511,7 +2853,7 @@ window.addEventListener("keydown",event=>{
     event.preventDefault();
     return;
   }
-  if(code==="KeyV"&&!event.repeat&&started&&!paused){
+  if(code==="KeyV"&&shipMode==="ocean"&&!event.repeat&&started&&!paused){
     firstPerson=!firstPerson;
     cameraLookReady=false;
     explorer.root.visible=!firstPerson;
@@ -2519,7 +2861,7 @@ window.addEventListener("keydown",event=>{
     return;
   }
   if(code==="Space"){
-    if(started&&!paused&&!journalOpen&&!event.repeat&&!keys.Space){
+    if(started&&!paused&&!journalOpen&&!event.repeat&&!keys.Space&&shipMode==="ocean"){
       const swimImpulse=event.ctrlKey||keys.ControlLeft||keys.ControlRight;
       if(swimImpulse)spaceStrokeRequested=true;
       else if(!isAirborne)jumpRequested=true;
@@ -2533,7 +2875,7 @@ window.addEventListener("keydown",event=>{
     keys.Sprint=!!(event.shiftKey||keys.ShiftLeft||keys.ShiftRight);
     event.preventDefault();
   }
-  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(code))event.preventDefault();
+  if(["ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyQ","KeyE","KeyF"].includes(code))event.preventDefault();
 },true);
 window.addEventListener("keyup",event=>{
   const code=getInputCode(event);
