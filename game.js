@@ -1745,7 +1745,7 @@ function updateShipFlight(dt){
     millerSite.platform.localToWorld(target);
     const delta=target.clone().sub(ship.position);
     const distance=delta.length();
-    const desiredSpeed=Math.min(9,Math.max(1.2,distance*0.72));
+    const desiredSpeed=Math.min(9,Math.max(0,distance*0.72));
     const desiredVelocity=distance>0.001?delta.normalize().multiplyScalar(desiredSpeed):new THREE.Vector3();
     shipVelocity.lerp(desiredVelocity,1-Math.exp(-1.75*dt));
     ship.position.addScaledVector(shipVelocity,dt);
@@ -2657,7 +2657,7 @@ function updateScene(dt, speed) {
     waveValue.textContent = depthAboveSeabed.toFixed(2) + " m";
     tideValue.textContent = tide.approaching ? "ACERCÁNDOSE" : "RETIRÁNDOSE";
     tideDistanceValue.textContent = Math.round(tide.distance) + " m";
-    stateValue.textContent = (firstPerson && (keys.ControlLeft || keys.ControlRight)) ? "VISTA SUBMARINA" : "AGUA A LA CINTURA";
+    stateValue.textContent = shipMode==="flight" ? "PILOTANDO M-01" : shipMode==="interior" ? "INTERIOR M-01" : (firstPerson && (keys.ControlLeft || keys.ControlRight)) ? "VISTA SUBMARINA" : "AGUA A LA CINTURA";
     const minutes = Math.floor(simulationTime / 60).toString().padStart(2, "0");
     const seconds = Math.floor(simulationTime % 60).toString().padStart(2, "0");
     clockLabel.textContent = "T+ " + minutes + ":" + seconds;
